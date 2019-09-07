@@ -17,5 +17,5 @@ https://software.intel.com/en-us/articles/improving-the-performance-of-the-secur
 
 # その他
 
-* memo.txt の内容更新を手伝ってくれると助かります！temp2019@knmail.jpn.org に連絡をお願いします。
+* memo.txt の更新を手伝ってくれると有り難いです！temp2019@knmail.jpn.org に連絡をお願いします。
 * さらなる高速化など気付いたことがあれば、よければ是非教えて下さい。（Skylake 以降に実装された SHA1拡張命令を利用することは除きます）

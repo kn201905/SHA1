@@ -19,7 +19,8 @@ extern void  SHA1_HashMultipleBlocks_SHANI(
 }
 */
 
-extern "C" void sha1_update_intel(unsigned int* state, const char* data);
+//extern "C" void sha1_update_intel(unsigned int* state, const char* data, size_t num_blocks);
+extern "C" uint64_t sha1_update_intel(unsigned int* state, const char* data, size_t num_blocks);
 
 /*
 void sha1_process_x86(uint32_t state[5], uint32_t* data)
@@ -49,11 +50,13 @@ int main()
     memset(data, 0, sizeof(data));
 	data[0] = 0x80;
 
-	sha1_update_intel(state, data);
+	//sha1_update_intel(state, data, 1);
+
+	const uint64_t  retv = sha1_update_intel(state, data, 1);
 
 
 	std::stringstream  ss;
-	ss << "state: " << std::hex << state[0];
+	ss << "retv: " << std::hex << retv;
 	std::cout << ss.str() << std::endl;
 
 

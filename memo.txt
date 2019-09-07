@@ -1,8 +1,16 @@
 
-ctx : hash 値を指すポインタ（20bytes バッファ）
-buf : 元データ（64bytes バッファ）
-cnt : 64bytes バッファの個数（SHA1_VECTOR_ASM で破壊される）
+ctx（= rdi）: hash 値を指すポインタ（20bytes バッファ）
+buf（= rsi）: 元データ（64bytes バッファ）
+cnt（= rdx）: 64bytes バッファの個数（SHA1_VECTOR_ASM で破壊される）
+
+* linux64-abi の規定　第１～６引数 で渡されるレジスタ
+　rdi, rsi, rdx, rcx, r8, r9
+* 戻り値は rax
 
 BUFFER_END	: buf + cnt * 64
 K_BASE		: K_XMM_AR
+
+// ----------------------
+実質的なコード開始位置は、SHA1_VECTOR_ASM
+SHA1 ハッシュを計算するのは SHA1_PIPELINED_MAIN_BODY
 

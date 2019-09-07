@@ -324,17 +324,17 @@ default rel
 %macro W_PRECALC 1
 	%xdefine i (%1)
 
-	%if (i &lt; 20)
+	%if (i < 20)
 		%xdefine K_XMM  0
-	%elif (i &lt; 40)
+	%elif (i < 40)
 		%xdefine K_XMM  16
-	%elif (i &lt; 60)
+	%elif (i < 60)
 		%xdefine K_XMM  32
 	%else
 		%xdefine K_XMM  48
 	%endif
 
-	%if (i&lt;16 || (i&gt;=80 &amp;&amp; i&lt;(80 + W_PRECALC_AHEAD)))
+	%if (i < 16 || (i >= 80 && i < (80 + W_PRECALC_AHEAD)))
 		%if (W_NO_TAIL_PRECALC == 0)
 			%xdefine i ((%1) % 80)        ;; pre-compute for the next iteration
 			%if (i == 0)
@@ -344,10 +344,10 @@ default rel
 			W_PRECALC_00_15
 		%endif
 
-	%elif (i &lt; 32)
+	%elif (i < 32)
 		W_PRECALC_16_31
 
-	%elif (i &lt; 80)   ;; rounds 32-79
+	%elif (i < 80)   ;; rounds 32-79
 		W_PRECALC_32_79
 	%endif
 %endmacro
@@ -388,18 +388,18 @@ default rel
 %macro W_PRECALC_00_15 0
 	;; message scheduling pre-compute for rounds 0-15
 
-	%if ((i &amp; 3) == 0)       ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
+	%if ((i & 3) == 0)       ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
 		movdqu W_TMP, [BUFFER_PTR + (i * 4)]
 
-	%elif ((i &amp; 3) == 1)
+	%elif ((i & 3) == 1)
 		pshufb W_TMP, XMM_SHUFB_BSWAP
 		movdqa W, W_TMP
 
-	%elif ((i &amp; 3) == 2)
+	%elif ((i & 3) == 2)
 		paddd  W_TMP, [K_BASE]
 
-	%elif ((i &amp; 3) == 3)
-		movdqa  [WK(i&amp;~3)], W_TMP
+	%elif ((i & 3) == 3)
+		movdqa  [WK(i&~3)], W_TMP
 		W_PRECALC_ROTATE
 	%endif
 %endmacro

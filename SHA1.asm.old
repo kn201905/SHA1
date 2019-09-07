@@ -1,70 +1,3 @@
-%ifndef INTEL_SHA1_UPDATE_DEFAULT_DISPATCH
-	%define INTEL_SHA1_UPDATE_DEFAULT_DISPATCH  sha1_intel_non_ssse3_cpu_stub_  
-%else
-	extern  INTEL_SHA1_UPDATE_DEFAULT_DISPATCH
-%endif
-
-%ifndef INTEL_SHA1_UPDATE_FUNCNAME
-	%define INTEL_SHA1_UPDATE_FUNCNAME     sha1_update_intel
-%endif
-
-global sha1_update_intel
-%assign multiblock 1
-
-bits 64  ; 64bit コードの指定
-default rel  ; デフォルトで RIP相対アドレシングを利用する
-
-%xdefine arg1 rdi
-%xdefine arg2 rsi
-%xdefine arg3 rdx
-
-%xdefine ctx arg1
-%xdefine buf arg2
-%xdefine cnt arg3
-
-%macro REGALLOC 0
-	%xdefine A ecx
-	%xdefine B esi
-	%xdefine C edi
-	%xdefine D ebp
-	%xdefine E edx
-	%xdefine T1 eax
-	%xdefine T2 ebx
-%endmacro
-
-%xdefine K_BASE     r8
-%xdefine HASH_PTR   r9
-%xdefine BUFFER_PTR r10
-%xdefine BUFFER_END r11
-
-%xdefine W_TMP  xmm0
-%xdefine W_TMP2 xmm9
-
-%xdefine W0  xmm1
-%xdefine W4  xmm2
-%xdefine W8  xmm3
-%xdefine W12 xmm4
-%xdefine W16 xmm5
-%xdefine W20 xmm6
-%xdefine W24 xmm7
-%xdefine W28 xmm8
-
-%xdefine XMM_SHUFB_BSWAP xmm10
-
-;; we keep window of 64 w[i]+K pre-calculated values in a circular buffer
-%xdefine WK(t) (rsp + (t & 15)*4)
-
-
-;------------------------------------------------------------------------------
-; macro implements SHA-1 function's body for single or several 64-byte blocks
-;
-; first param: function's name
-;
-; second param: =0 - function implements single 64-byte block hash
-;               =1 - function implements multiple64-byte blocks hash
-
-%macro  SHA1_VECTOR_ASM  2
-%endmacro
 
 
 ;--------------------------------------------
@@ -74,7 +7,6 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 ;              =1 - multiple blocks
 
 %macro SHA1_PIPELINED_MAIN_BODY 1
-	REGALLOC
 
 	mov A, [HASH_PTR   ]
 	mov B, [HASH_PTR+ 4]
@@ -214,37 +146,6 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 	mov %1, %2
 %endmacro
 
-
-%macro W_PRECALC 1
-	%xdefine i (%1)
-
-	%if (i &lt; 20)
-		%xdefine K_XMM  0
-	%elif (i &lt; 40)
-		%xdefine K_XMM  16
-	%elif (i &lt; 60)
-		%xdefine K_XMM  32
-	%else
-		%xdefine K_XMM  48
-	%endif
-
-	%if (i&lt;16 || (i&gt;=80 &amp;&amp; i&lt;(80 + W_PRECALC_AHEAD)))
-		%if (W_NO_TAIL_PRECALC == 0)
-			%xdefine i ((%1) % 80)        ;; pre-compute for the next iteration
-			%if (i == 0)
-				W_PRECALC_RESET
-			%endif
-
-			W_PRECALC_00_15
-		%endif
-
-	%elif (i &lt; 32)
-		W_PRECALC_16_31
-
-	%elif (i &lt; 80)   ;; rounds 32-79
-		W_PRECALC_32_79
-	%endif
-%endmacro
 
 
 %macro W_PRECALC_RESET 0
@@ -427,10 +328,6 @@ bswap_shufb_ctl:
 	DD 0c0d0e0fh
 
 
-;; dispatch pointer, points to the init routine for the first invocation
-sha1_update_intel_dispatched:
-	DQ  sha1_update_intel_init_
-
 ;;----------------------
 
 section .text align=4096
@@ -438,52 +335,9 @@ section .text align=4096
 
 	align 32
 
-sha1_update_intel_init_:       ;; we get here with the first time invocation
-	call    sha1_update_intel_dispacth_init_
+
+sha1_update_intel:    ;; C++ から呼び出される最初のアドレス
+	jmp     sha1_update_intel_ssse3_
 
 
-
-sha1_update_intel:    ;; we get here after init
-
-	jmp     qword [sha1_update_intel_dispatched]
-
-	;; CPUID feature flag based dispatch
-
-sha1_update_intel_dispacth_init_:
-	push    rax
-	push    rbx
-	push    rcx
-	push    rdx
-	push    rsi
-
-;	lea     rsi, [INTEL_SHA1_UPDATE_DEFAULT_DISPATCH]
-	lea     rsi, [sha1_intel_non_ssse3_cpu_stub_]
-	mov     eax, 1
-
-	cpuid
-	test    ecx, 0200h          ;; SSSE3 support, CPUID.1.ECX[bit 9]
-	jz      _done
-	lea     rsi, [sha1_update_intel_ssse3_]
-
-_done:
-	mov     [sha1_update_intel_dispatched], rsi
-	pop     rsi
-	pop     rdx
-	pop     rcx
-	pop     rbx
-	pop     rax
-	ret
-
-	;;----------------------
-	;; in the case a default SHA-1 update function implementation was not provided
-	;; and code was invoked on a non-SSSE3 supporting CPU, dispatch handles this
-	;; failure in a safest way - jumps to the stub function with UD2 instruction below
-
-sha1_intel_non_ssse3_cpu_stub_:
-
-	ud2     ;; in the case no default SHA-1 was provided non-SSSE3 CPUs safely fail here
-	ret
-
-	; END
-	;----------------------
 
