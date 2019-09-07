@@ -1,103 +1,103 @@
 https://software.intel.com/en-us/articles/improving-the-performance-of-the-secure-hash-algorithm-1
 
 ;---------------------
-		;   This code implements two interfaces of SHA-1 update function: 1) working on a single
-		;   64-byte block and 2) working on a buffer of multiple 64-bit blocks. Multiple blocks
-		;   version of code is software pipelined and faster overall, it is a default. Assemble
-		;   with -DINTEL_SHA1_SINGLEBLOCK to select single 64-byte block function interface.
-		;
-		;   C++ prototypes of implemented functions are below:
-		;
-		;   #ifndef INTEL_SHA1_SINGLEBLOCK
-		;      // Updates 20-byte SHA-1 record in 'hash' for 'num_blocks' consequtive 64-byte blocks
-		;      extern "C" void sha1_update_intel(int *hash, const char* input, size_t num_blocks );
-		;   #else
-		;      // Updates 20-byte SHA-1 record in 'hash' for one 64-byte block pointed by 'input'
-		;      extern "C" void sha1_update_intel(int *hash, const char* input);
-		;   #endif
-		;
-		;   Function name 'sha1_update_intel' can be changed in the source or via macro:
-		;     -DINTEL_SHA1_UPDATE_FUNCNAME=my_sha1_update_func_name
-		;
-		;   It implements both UNIX(default) and Windows ABIs, use -DWIN_ABI on Windows
-		;
-		;   Code checks CPU for SSSE3 support via CPUID feature flag (CPUID.1.ECX.SSSE3[bit 9]==1),
-		;   and performs dispatch. Since in most cases the functionality on non-SSSE3 supporting CPUs
-		;   is also required, the default (e.g. one being replaced) function can be provided for
-		;   dispatch on such CPUs, the name of old function can be changed in the source or via macro:
-		;
-		;      -DINTEL_SHA1_UPDATE_DEFAULT_DISPATCH=default_sha1_update_function_name
-		;
-		;   Authors: Maxim Locktyukhin and Ronen Zohar at Intel.com
-		;
+;   This code implements two interfaces of SHA-1 update function: 1) working on a single
+;   64-byte block and 2) working on a buffer of multiple 64-bit blocks. Multiple blocks
+;   version of code is software pipelined and faster overall, it is a default. Assemble
+;   with -DINTEL_SHA1_SINGLEBLOCK to select single 64-byte block function interface.
+;
+;   C++ prototypes of implemented functions are below:
+;
+;   #ifndef INTEL_SHA1_SINGLEBLOCK
+;      // Updates 20-byte SHA-1 record in 'hash' for 'num_blocks' consequtive 64-byte blocks
+;      extern "C" void sha1_update_intel(int *hash, const char* input, size_t num_blocks );
+;   #else
+;      // Updates 20-byte SHA-1 record in 'hash' for one 64-byte block pointed by 'input'
+;      extern "C" void sha1_update_intel(int *hash, const char* input);
+;   #endif
+;
+;   Function name 'sha1_update_intel' can be changed in the source or via macro:
+;     -DINTEL_SHA1_UPDATE_FUNCNAME=my_sha1_update_func_name
+;
+;   It implements both UNIX(default) and Windows ABIs, use -DWIN_ABI on Windows
+;
+;   Code checks CPU for SSSE3 support via CPUID feature flag (CPUID.1.ECX.SSSE3[bit 9]==1),
+;   and performs dispatch. Since in most cases the functionality on non-SSSE3 supporting CPUs
+;   is also required, the default (e.g. one being replaced) function can be provided for
+;   dispatch on such CPUs, the name of old function can be changed in the source or via macro:
+;
+;      -DINTEL_SHA1_UPDATE_DEFAULT_DISPATCH=default_sha1_update_function_name
+;
+;   Authors: Maxim Locktyukhin and Ronen Zohar at Intel.com
+;
 		
 
-		%ifndef INTEL_SHA1_UPDATE_DEFAULT_DISPATCH
-		%define INTEL_SHA1_UPDATE_DEFAULT_DISPATCH  sha1_intel_non_ssse3_cpu_stub_  
-		%else
-		extern  INTEL_SHA1_UPDATE_DEFAULT_DISPATCH
-		%endif
+%ifndef INTEL_SHA1_UPDATE_DEFAULT_DISPATCH
+	%define INTEL_SHA1_UPDATE_DEFAULT_DISPATCH  sha1_intel_non_ssse3_cpu_stub_  
+%else
+	extern  INTEL_SHA1_UPDATE_DEFAULT_DISPATCH
+%endif
 
-		%ifndef INTEL_SHA1_UPDATE_FUNCNAME
-		%define INTEL_SHA1_UPDATE_FUNCNAME     sha1_update_intel
-		%endif
+%ifndef INTEL_SHA1_UPDATE_FUNCNAME
+	%define INTEL_SHA1_UPDATE_FUNCNAME     sha1_update_intel
+%endif
 
-		global INTEL_SHA1_UPDATE_FUNCNAME
+global INTEL_SHA1_UPDATE_FUNCNAME
 
-		%ifndef INTEL_SHA1_SINGLEBLOCK
-		%assign multiblock 1
-		%else
-		%assign multiblock 0
-		%endif
+%ifndef INTEL_SHA1_SINGLEBLOCK
+	%assign multiblock 1
+%else
+	%assign multiblock 0
+%endif
 
-		bits 64
-		default rel
-	
-		%ifdef WIN_ABI
-		%xdefine arg1 rcx
-		%xdefine arg2 rdx
-		%xdefine arg3 r8
-		%else
-		%xdefine arg1 rdi
-		%xdefine arg2 rsi
-		%xdefine arg3 rdx
-		%endif
+bits 64
+default rel
 
-		%xdefine ctx arg1
-		%xdefine buf arg2
-		%xdefine cnt arg3
+%ifdef WIN_ABI
+	%xdefine arg1 rcx
+	%xdefine arg2 rdx
+	%xdefine arg3 r8
+%else
+	%xdefine arg1 rdi
+	%xdefine arg2 rsi
+	%xdefine arg3 rdx
+%endif
 
-		%macro REGALLOC 0
-		%xdefine A ecx
-		%xdefine B esi
-		%xdefine C edi
-		%xdefine D ebp
-		%xdefine E edx
-		%xdefine T1 eax
-		%xdefine T2 ebx
-		%endmacro
-		
-		%xdefine K_BASE     r8
-		%xdefine HASH_PTR   r9
-		%xdefine BUFFER_PTR r10
-		%xdefine BUFFER_END r11
+%xdefine ctx arg1
+%xdefine buf arg2
+%xdefine cnt arg3
 
-		%xdefine W_TMP  xmm0
-		%xdefine W_TMP2 xmm9
+%macro REGALLOC 0
+	%xdefine A ecx
+	%xdefine B esi
+	%xdefine C edi
+	%xdefine D ebp
+	%xdefine E edx
+	%xdefine T1 eax
+	%xdefine T2 ebx
+%endmacro
 
-		%xdefine W0  xmm1
-		%xdefine W4  xmm2
-		%xdefine W8  xmm3
-		%xdefine W12 xmm4
-		%xdefine W16 xmm5
-		%xdefine W20 xmm6
-		%xdefine W24 xmm7
-		%xdefine W28 xmm8
+%xdefine K_BASE     r8
+%xdefine HASH_PTR   r9
+%xdefine BUFFER_PTR r10
+%xdefine BUFFER_END r11
 
-		%xdefine XMM_SHUFB_BSWAP xmm10
+%xdefine W_TMP  xmm0
+%xdefine W_TMP2 xmm9
 
-		;; we keep window of 64 w[i]+K pre-calculated values in a circular buffer
-		%xdefine WK(t) (rsp + (t &amp; 15)*4)
+%xdefine W0  xmm1
+%xdefine W4  xmm2
+%xdefine W8  xmm3
+%xdefine W12 xmm4
+%xdefine W16 xmm5
+%xdefine W20 xmm6
+%xdefine W24 xmm7
+%xdefine W28 xmm8
+
+%xdefine XMM_SHUFB_BSWAP xmm10
+
+;; we keep window of 64 w[i]+K pre-calculated values in a circular buffer
+%xdefine WK(t) (rsp + (t &amp; 15)*4)
 
 ;------------------------------------------------------------------------------
 ;
