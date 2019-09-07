@@ -1,103 +1,59 @@
-https://software.intel.com/en-us/articles/improving-the-performance-of-the-secure-hash-algorithm-1
+%ifndef INTEL_SHA1_UPDATE_DEFAULT_DISPATCH
+	%define INTEL_SHA1_UPDATE_DEFAULT_DISPATCH  sha1_intel_non_ssse3_cpu_stub_  
+%else
+	extern  INTEL_SHA1_UPDATE_DEFAULT_DISPATCH
+%endif
 
-;---------------------
-		;   This code implements two interfaces of SHA-1 update function: 1) working on a single
-		;   64-byte block and 2) working on a buffer of multiple 64-bit blocks. Multiple blocks
-		;   version of code is software pipelined and faster overall, it is a default. Assemble
-		;   with -DINTEL_SHA1_SINGLEBLOCK to select single 64-byte block function interface.
-		;
-		;   C++ prototypes of implemented functions are below:
-		;
-		;   #ifndef INTEL_SHA1_SINGLEBLOCK
-		;      // Updates 20-byte SHA-1 record in 'hash' for 'num_blocks' consequtive 64-byte blocks
-		;      extern "C" void sha1_update_intel(int *hash, const char* input, size_t num_blocks );
-		;   #else
-		;      // Updates 20-byte SHA-1 record in 'hash' for one 64-byte block pointed by 'input'
-		;      extern "C" void sha1_update_intel(int *hash, const char* input);
-		;   #endif
-		;
-		;   Function name 'sha1_update_intel' can be changed in the source or via macro:
-		;     -DINTEL_SHA1_UPDATE_FUNCNAME=my_sha1_update_func_name
-		;
-		;   It implements both UNIX(default) and Windows ABIs, use -DWIN_ABI on Windows
-		;
-		;   Code checks CPU for SSSE3 support via CPUID feature flag (CPUID.1.ECX.SSSE3[bit 9]==1),
-		;   and performs dispatch. Since in most cases the functionality on non-SSSE3 supporting CPUs
-		;   is also required, the default (e.g. one being replaced) function can be provided for
-		;   dispatch on such CPUs, the name of old function can be changed in the source or via macro:
-		;
-		;      -DINTEL_SHA1_UPDATE_DEFAULT_DISPATCH=default_sha1_update_function_name
-		;
-		;   Authors: Maxim Locktyukhin and Ronen Zohar at Intel.com
-		;
-		
+%ifndef INTEL_SHA1_UPDATE_FUNCNAME
+	%define INTEL_SHA1_UPDATE_FUNCNAME     sha1_update_intel
+%endif
 
-		%ifndef INTEL_SHA1_UPDATE_DEFAULT_DISPATCH
-		%define INTEL_SHA1_UPDATE_DEFAULT_DISPATCH  sha1_intel_non_ssse3_cpu_stub_  
-		%else
-		extern  INTEL_SHA1_UPDATE_DEFAULT_DISPATCH
-		%endif
+global sha1_update_intel
+%assign multiblock 1
 
-		%ifndef INTEL_SHA1_UPDATE_FUNCNAME
-		%define INTEL_SHA1_UPDATE_FUNCNAME     sha1_update_intel
-		%endif
+bits 64  ; 64bit コードの指定
+default rel  ; デフォルトで RIP相対アドレシングを利用する
 
-		global INTEL_SHA1_UPDATE_FUNCNAME
+%xdefine arg1 rdi
+%xdefine arg2 rsi
+%xdefine arg3 rdx
 
-		%ifndef INTEL_SHA1_SINGLEBLOCK
-		%assign multiblock 1
-		%else
-		%assign multiblock 0
-		%endif
+%xdefine ctx arg1
+%xdefine buf arg2
+%xdefine cnt arg3
 
-		bits 64
-		default rel
-	
-		%ifdef WIN_ABI
-		%xdefine arg1 rcx
-		%xdefine arg2 rdx
-		%xdefine arg3 r8
-		%else
-		%xdefine arg1 rdi
-		%xdefine arg2 rsi
-		%xdefine arg3 rdx
-		%endif
+%macro REGALLOC 0
+	%xdefine A ecx
+	%xdefine B esi
+	%xdefine C edi
+	%xdefine D ebp
+	%xdefine E edx
+	%xdefine T1 eax
+	%xdefine T2 ebx
+%endmacro
 
-		%xdefine ctx arg1
-		%xdefine buf arg2
-		%xdefine cnt arg3
+%xdefine K_BASE     r8
+%xdefine HASH_PTR   r9
+%xdefine BUFFER_PTR r10
+%xdefine BUFFER_END r11
 
-		%macro REGALLOC 0
-		%xdefine A ecx
-		%xdefine B esi
-		%xdefine C edi
-		%xdefine D ebp
-		%xdefine E edx
-		%xdefine T1 eax
-		%xdefine T2 ebx
-		%endmacro
-		
-		%xdefine K_BASE     r8
-		%xdefine HASH_PTR   r9
-		%xdefine BUFFER_PTR r10
-		%xdefine BUFFER_END r11
+%xdefine W_TMP  xmm0
+%xdefine W_TMP2 xmm9
 
-		%xdefine W_TMP  xmm0
-		%xdefine W_TMP2 xmm9
+%xdefine W0  xmm1
+%xdefine W4  xmm2
+%xdefine W8  xmm3
+%xdefine W12 xmm4
+%xdefine W16 xmm5
+%xdefine W20 xmm6
+%xdefine W24 xmm7
+%xdefine W28 xmm8
 
-		%xdefine W0  xmm1
-		%xdefine W4  xmm2
-		%xdefine W8  xmm3
-		%xdefine W12 xmm4
-		%xdefine W16 xmm5
-		%xdefine W20 xmm6
-		%xdefine W24 xmm7
-		%xdefine W28 xmm8
+%xdefine XMM_SHUFB_BSWAP xmm10
 
-		%xdefine XMM_SHUFB_BSWAP xmm10
+;; we keep window of 64 w[i]+K pre-calculated values in a circular buffer
+%xdefine WK(t) (rsp + (t & 15)*4)
 
-		;; we keep window of 64 w[i]+K pre-calculated values in a circular buffer
-		%xdefine WK(t) (rsp + (t &amp; 15)*4)
 
 ;------------------------------------------------------------------------------
 ;
@@ -107,9 +63,6 @@ https://software.intel.com/en-us/articles/improving-the-performance-of-the-secur
 ;
 ; second param: =0 - function implements single 64-byte block hash
 ;               =1 - function implements multiple64-byte blocks hash
-;
-;               3rd function's argument is a number, greater 0, of 64-byte blocks to calc hash for
-;
 
 %macro  SHA1_VECTOR_ASM  2
 	align 4096
@@ -118,25 +71,8 @@ https://software.intel.com/en-us/articles/improving-the-performance-of-the-secur
 	push rbx
 	push rbp
 
-	%ifdef WIN_ABI
-		push rdi
-		push rsi
-		%xdefine stack_size (16*4 + 16*5 + 8)
-	%else
-		%xdefine stack_size (16*4 + 8)
-	%endif    
-	
+	%xdefine stack_size (16*4 + 8)
 	sub     rsp, stack_size
-
-	%ifdef WIN_ABI
-		%xdefine xmm_save_base (rsp + 16*4)
-
-		xmm_mov [xmm_save_base + 0*16], xmm6
-		xmm_mov [xmm_save_base + 1*16], xmm7
-		xmm_mov [xmm_save_base + 2*16], xmm8
-		xmm_mov [xmm_save_base + 3*16], xmm9
-		xmm_mov [xmm_save_base + 4*16], xmm10
-	%endif
 
 	mov     HASH_PTR, ctx
 	mov     BUFFER_PTR, buf
@@ -152,33 +88,17 @@ https://software.intel.com/en-us/articles/improving-the-performance-of-the-secur
 
 	SHA1_PIPELINED_MAIN_BODY %2
 
-	%ifdef WIN_ABI
-		xmm_mov xmm6, [xmm_save_base + 0*16]
-		xmm_mov xmm7, [xmm_save_base + 1*16]
-		xmm_mov xmm8, [xmm_save_base + 2*16]
-		xmm_mov xmm9, [xmm_save_base + 3*16]
-		xmm_mov xmm10,[xmm_save_base + 4*16]
-	%endif
-
 	add rsp, stack_size
-
-	%ifdef WIN_ABI
-		pop rsi
-		pop rdi
-	%endif
-
 	pop rbp
 	pop rbx
 	ret
 %endmacro
-
 
 ;--------------------------------------------
 ; macro implements 80 rounds of SHA-1, for one 64-byte block or multiple blocks with s/w pipelining
 ;
 ; macro param: =0 - process single 64-byte block
 ;              =1 - multiple blocks
-;
 
 %macro SHA1_PIPELINED_MAIN_BODY 1
 	REGALLOC
@@ -194,7 +114,7 @@ https://software.intel.com/en-us/articles/improving-the-performance-of-the-secur
 		W_PRECALC i
 		%assign i i+1
 	%endrep
-		
+
 	%xdefine F F1
 
 	%if (%1 == 1)                         ;; code loops through more than one block
@@ -298,7 +218,7 @@ https://software.intel.com/en-us/articles/improving-the-performance-of-the-secur
 	and T1,%1
 	xor T1,%3
 %endmacro
-	
+
 %macro F2 3
 	mov T1,%3
 	xor T1,%2
@@ -320,6 +240,7 @@ https://software.intel.com/en-us/articles/improving-the-performance-of-the-secur
 	add %2, %1
 	mov %1, %2
 %endmacro
+
 
 %macro W_PRECALC 1
 	%xdefine i (%1)
@@ -352,7 +273,7 @@ https://software.intel.com/en-us/articles/improving-the-performance-of-the-secur
 	%endif
 %endmacro
 
-		
+
 %macro W_PRECALC_RESET 0
 	%xdefine    W             W0
 	%xdefine    W_minus_04    W4
@@ -378,12 +299,11 @@ https://software.intel.com/en-us/articles/improving-the-performance-of-the-secur
 	%xdefine    W             W_minus_32
 %endmacro
 
-		
 %xdefine W_PRECALC_AHEAD   16
 %xdefine W_NO_TAIL_PRECALC 0
 
 %xdefine xmm_mov            movdqa
-		
+
 
 %macro W_PRECALC_00_15 0
 	;; message scheduling pre-compute for rounds 0-15
@@ -446,7 +366,7 @@ https://software.intel.com/en-us/articles/improving-the-performance-of-the-secur
 	%endif
 %endmacro
 
-		
+
 %macro W_PRECALC_32_79 0
 	;; in SHA-1 specification: w[i] = (w[i-3] ^ w[i-8]  ^ w[i-14] ^ w[i-16]) rol 1
 	;; instead we do equal:    w[i] = (w[i-6] ^ w[i-16] ^ w[i-28] ^ w[i-32]) rol 2
@@ -476,7 +396,7 @@ https://software.intel.com/en-us/articles/improving-the-performance-of-the-secur
 	%endif
 %endmacro
 
-		
+
 %macro RR 6      ;; RR does two rounds of SHA-1 back to back with W pre-calculation
 	;;     TEMP = A
 	;;     A = F( i, B, C, D ) + E + ROTATE_LEFT( A, 5 ) + W[i] + K(i)
@@ -549,7 +469,7 @@ section .text align=4096
 sha1_update_intel_init_:       ;; we get here with the first time invocation
 	call    sha1_update_intel_dispacth_init_
 
-	INTEL_SHA1_UPDATE_FUNCNAME:    ;; we get here after init
+INTEL_SHA1_UPDATE_FUNCNAME:    ;; we get here after init
 
 	jmp     qword [sha1_update_intel_dispatched]
 
