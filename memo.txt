@@ -1,0 +1,8 @@
+
+ctx : hash 値を指すポインタ（20bytes バッファ）
+buf : 元データ（64bytes バッファ）
+cnt : 64bytes バッファの個数（SHA1_VECTOR_ASM で破壊される）
+
+BUFFER_END	: buf + cnt * 64
+K_BASE		: K_XMM_AR
+

@@ -64,34 +64,8 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 ;               =1 - function implements multiple64-byte blocks hash
 
 %macro  SHA1_VECTOR_ASM  2
-	align 4096
-
-%1:
-	push rbx
-	push rbp
-
-	%xdefine stack_size (16*4 + 8)
-	sub     rsp, stack_size
-
-	mov     HASH_PTR, ctx
-	mov     BUFFER_PTR, buf
-
-	%if (%2 == 1)
-		shl     cnt, 6           ;; mul by 64
-		add     cnt, buf
-		mov     BUFFER_END, cnt
-	%endif
-
-	lea     K_BASE, [K_XMM_AR]
-	xmm_mov XMM_SHUFB_BSWAP, [bswap_shufb_ctl]
-
-	SHA1_PIPELINED_MAIN_BODY %2
-
-	add rsp, stack_size
-	pop rbp
-	pop rbx
-	ret
 %endmacro
+
 
 ;--------------------------------------------
 ; macro implements 80 rounds of SHA-1, for one 64-byte block or multiple blocks with s/w pipelining
@@ -438,7 +412,7 @@ section .data align=128
 
 	align 128
 
-	K_XMM_AR:
+K_XMM_AR:
 	DD K1, K1, K1, K1
 	DD K2, K2, K2, K2
 	DD K3, K3, K3, K3
@@ -452,10 +426,9 @@ bswap_shufb_ctl:
 	DD 08090a0bh
 	DD 0c0d0e0fh
 
-	;; dispatch pointer, points to the init routine for the first invocation
 
+;; dispatch pointer, points to the init routine for the first invocation
 sha1_update_intel_dispatched:
-
 	DQ  sha1_update_intel_init_
 
 ;;----------------------
@@ -468,7 +441,9 @@ section .text align=4096
 sha1_update_intel_init_:       ;; we get here with the first time invocation
 	call    sha1_update_intel_dispacth_init_
 
-INTEL_SHA1_UPDATE_FUNCNAME:    ;; we get here after init
+
+
+sha1_update_intel:    ;; we get here after init
 
 	jmp     qword [sha1_update_intel_dispatched]
 
@@ -481,7 +456,8 @@ sha1_update_intel_dispacth_init_:
 	push    rdx
 	push    rsi
 
-	lea     rsi, [INTEL_SHA1_UPDATE_DEFAULT_DISPATCH]
+;	lea     rsi, [INTEL_SHA1_UPDATE_DEFAULT_DISPATCH]
+	lea     rsi, [sha1_intel_non_ssse3_cpu_stub_]
 	mov     eax, 1
 
 	cpuid

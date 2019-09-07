@@ -549,7 +549,7 @@ section .text align=4096
 sha1_update_intel_init_:       ;; we get here with the first time invocation
 	call    sha1_update_intel_dispacth_init_
 
-	INTEL_SHA1_UPDATE_FUNCNAME:    ;; we get here after init
+INTEL_SHA1_UPDATE_FUNCNAME:    ;; we get here after init
 
 	jmp     qword [sha1_update_intel_dispatched]
 
