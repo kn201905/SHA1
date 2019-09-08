@@ -1,4 +1,5 @@
 ; https://software.intel.com/en-us/articles/improving-the-performance-of-the-secure-hash-algorithm-1
+; https://www.officedaytime.com/tips/simd.html
 
 global sha1_update_intel
 %assign multiblock 1
@@ -71,21 +72,19 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 %xdefine W_NO_TAIL_PRECALC 0
 
 
-%macro W_PRECALC_00_15 0
-	;; message scheduling pre-compute for rounds 0-15
-
+%macro W_PRECALC_00_15 0   ;; message scheduling pre-compute for rounds 0-15
 	%if ((i & 3) == 0)       ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
 		movdqu	W_TMP, [BUFFER_PTR + (i * 4)]  ; BUFFER_PTR = r10
 
 	%elif ((i & 3) == 1)
-		pshufb W_TMP, XMM_SHUFB_BSWAP
-		movdqa W, W_TMP
+		pshufb	W_TMP, XMM_SHUFB_BSWAP  ; W_TMP = xmm0
+		movdqa	W, W_TMP
 
 	%elif ((i & 3) == 2)
-		paddd  W_TMP, [K_BASE]
+		paddd	W_TMP, [K_BASE]  ; K_BASE = r8 = K_XMM_AR, paddd = Packed ADD 32bits
 
 	%elif ((i & 3) == 3)
-		movdqa  [WK(i&~3)], W_TMP
+		movdqa	[WK(i&~3)], W_TMP  ; WK(0), WK(4), WK(8), W(12) のいずれかになる
 		W_PRECALC_ROTATE
 	%endif
 %endmacro
@@ -155,13 +154,18 @@ bswap_shufb_ctl:
 ;--------------------------------------------
 section .text align=4096
 
+; 元は SHA1_VECTOR_ASM マクロであった部分
 	align 4096
 
 sha1_update_intel:   ;; entry point
 	push	rbx
 	push	rbp
 
-	%xdefine stack_size (16*4 + 8)
+; ==================
+; テストコード
+	movq	xmm15, rcx  ; 第４引数の退避
+
+	%xdefine stack_size (16*4 + 8)  ; 72bytes
 	sub     rsp, stack_size
 
 	mov     HASH_PTR, ctx
@@ -193,8 +197,15 @@ sha1_update_intel:   ;; entry point
 		%assign i i+1
 	%endrep
 
-	mov		rax, i
-;	bswap 	eax
+; ==================
+; テストコード
+	movq	rcx, xmm15  ; 第４引数の復帰
+	vmovdqu	ymm0, [rsp]  ; 32bytes コピー
+	vmovdqa [rcx], ymm0
+	vmovdqu	ymm0, [rsp + 32]  ; 32bytes コピー
+	vmovdqa [rcx + 32], ymm0
+	mov		rax, [rsp + 64]  ; 8bytes コピー
+	mov		[rcx + 64], rax
 
 	add		rsp, stack_size
 	pop		rbp

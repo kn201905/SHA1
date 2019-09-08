@@ -20,7 +20,8 @@ extern void  SHA1_HashMultipleBlocks_SHANI(
 */
 
 //extern "C" void sha1_update_intel(unsigned int* state, const char* data, size_t num_blocks);
-extern "C" uint64_t sha1_update_intel(unsigned int* state, const char* data, size_t num_blocks);
+//extern "C" uint64_t sha1_update_intel(unsigned int* state, const char* data, size_t num_blocks);
+extern "C" uint64_t sha1_update_intel(unsigned int* state, const char* data, size_t num_blocks, char* pstack);
 
 /*
 void sha1_process_x86(uint32_t state[5], uint32_t* data)
@@ -52,13 +53,48 @@ int main()
 
 	//sha1_update_intel(state, data, 1);
 
-	const uint64_t  retv = sha1_update_intel(state, data, 1);
+// ====================
+// テストコード
+	char __attribute__ ((aligned (32))) stack[72];  // vmovdaq の利用のため
+	const uint64_t  retv = sha1_update_intel(state, data, 1, stack);
 
 
+	std::cout << "stack 内容\n";
+	auto  tohex = [](uint8_t chr) -> char { return  chr < 10 ? chr + 0x30 : chr + 0x30 + 7 + 0x20; };
+
+	uint8_t*  psrc = (uint8_t*)stack;
+	std::string  str;
+	char  hex[4] = { 0, 0, 0x20, 0 };
+
+	for (int j = 0; j < 4; ++j)
+	{
+		for (int i = 0; i < 16; ++i)
+		{
+			uint8_t  a = *psrc++;
+			hex[0] = tohex( a >> 4 );
+			hex[1] = tohex( a & 0xf );
+			str += hex;
+
+			if ((i & 3) == 3) { str += ' '; }
+		}
+		std::cout << str << std::endl;
+		str.clear();
+	}
+
+	for (int i = 0; i < 8; ++i)
+	{
+		uint8_t  a = *psrc++;
+		hex[0] = tohex( a >> 4 );
+		hex[1] = tohex( a & 0xf );
+		str += hex;
+	}
+	std::cout << str << std::endl;
+
+#if false
 	std::stringstream  ss;
 	ss << "retv: " << std::hex << retv;
 	std::cout << ss.str() << std::endl;
-
+#endif
 
 #if false
 	std::cout << "SHA1 hash of empty message: DA39A3EE 5E6B4B0D...\n";
