@@ -271,36 +271,8 @@
 %endmacro
 
 
-%macro RR 6      ;; RR does two rounds of SHA-1 back to back with W pre-calculation
-	;;     TEMP = A
-	;;     A = F( i, B, C, D ) + E + ROTATE_LEFT( A, 5 ) + W[i] + K(i)
-	;;     C = ROTATE_LEFT( B, 30 )
-	;;     D = C
-	;;     E = D
-	;;     B = TEMP
-
-	W_PRECALC (%6 + W_PRECALC_AHEAD)
-	F    %2, %3, %4     ;; F returns result in T1
-	add  %5, [WK(%6)]
-	rol  %2, 30
-	mov  T2, %1
-	add  %4, [WK(%6 + 1)]
-	rol  T2, 5
-	add  %5, T1
-
-	W_PRECALC (%6 + W_PRECALC_AHEAD + 1)
-	add  T2, %5
-	mov  %5, T2
-	rol  T2, 5
-	add  %4, T2
-
-	F    %1, %2, %3    ;; F returns result in T1
-	add  %4, T1
-	rol  %1, 30
-
-	;; write:  %1, %2
-	;; rotate: %1<=%4, %2<=%5, %3<=%1, %4<=%2, %5<=%3
-%endmacro
+;;; %macro RR 6      ;; RR does two rounds of SHA-1 back to back with W pre-calculation
+;;; %endmacro
 
 
 ;;----------------------

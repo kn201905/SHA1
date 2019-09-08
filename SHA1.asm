@@ -103,7 +103,7 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 		%xdefine K_XMM  48
 	%endif
 
-	%if (i < 16 || (i >= 80 && i < (80 + W_PRECALC_AHEAD)))
+	%if (i < 16 || (i >= 80 && i < (80 + W_PRECALC_AHEAD)))	;; i = 0,...,15 , 80,...,95
 		%if (W_NO_TAIL_PRECALC == 0)
 			%xdefine i ((%1) % 80)        ;; pre-compute for the next iteration
 			%if (i == 0)
@@ -126,11 +126,44 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 %endmacro
 
 
+; 以下は、T1 = (%1 and %2) or (not(%1) and %3) と等価
 %macro F1 3
 	mov T1,%2  ; T1 = eax
-	xor T1,%3
+	xor T1,%3  ; T1 = %2 xor %3
 	and T1,%1
 	xor T1,%3
+%endmacro
+
+
+%macro RR 6		;; RR does two rounds of SHA-1 back to back with W pre-calculation
+	;;     TEMP = A
+	;;     A = F( i, B, C, D ) + E + ROTATE_LEFT( A, 5 ) + W[i] + K(i)
+	;;     C = ROTATE_LEFT( B, 30 )
+	;;     D = C
+	;;     E = D
+	;;     B = TEMP
+
+	W_PRECALC (%6 + W_PRECALC_AHEAD)	; W_PRECALC_AHEAD は常に 16
+	F    %2, %3, %4     ;; F returns result in T1
+	add  %5, [WK(%6)]
+	rol  %2, 30
+	mov  T2, %1
+	add  %4, [WK(%6 + 1)]
+	rol  T2, 5
+	add  %5, T1
+
+	W_PRECALC (%6 + W_PRECALC_AHEAD + 1)
+	add  T2, %5
+	mov  %5, T2
+	rol  T2, 5
+	add  %4, T2
+
+	F    %1, %2, %3    ;; F returns result in T1
+	add  %4, T1
+	rol  %1, 30
+
+	;; write:  %1, %2
+	;; rotate: %1<=%4, %2<=%5, %3<=%1, %4<=%2, %5<=%3
 %endmacro
 
 
@@ -205,6 +238,7 @@ sha1_update_intel:   ;; コード開始位置
 		%assign i i+1
 	%endrep
 
+	; F1 は、T1 = (%1 and %2) or (not(%1) and %3) を計算する
 	%xdefine F F1
 
 	%if (multiblock == 1)               ; code loops through more than one block
@@ -216,6 +250,13 @@ pp_loop:
 		align 32
 pp_begin:
 	%endif
+
+	RR A,B,C,D,E,0
+	RR D,E,A,B,C,2
+	RR B,C,D,E,A,4
+	RR E,A,B,C,D,6
+	RR C,D,E,A,B,8
+
 
 
 ;;; SHA1_PIPELINED_MAIN_BODY の終了付近のコード
