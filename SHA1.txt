@@ -410,23 +410,23 @@ default rel
 	;; calculating last 32 w[i] values in 8 XMM registers
 	;; pre-calculate K+w[i] values and store to mem, for later load by ALU add instruction
 	;;
-	;; "brute force" vectorization for rounds 16-31 only due to w[i]-&gt;w[i-3] dependency
+	;; "brute force" vectorization for rounds 16-31 only due to w[i]->w[i-3] dependency
 
-	%if ((i &amp; 3) == 0)    ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
+	%if ((i & 3) == 0)    ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
 		movdqa  W, W_minus_12
 		palignr W, W_minus_16, 8       ;; w[i-14]
 		movdqa  W_TMP, W_minus_04
 		psrldq  W_TMP, 4               ;; w[i-3]
 		pxor    W, W_minus_08
 
-	%elif ((i &amp; 3) == 1)
+	%elif ((i & 3) == 1)
 		pxor    W_TMP, W_minus_16
 		pxor    W, W_TMP
 		movdqa  W_TMP2, W
 		movdqa  W_TMP, W
 		pslldq  W_TMP2, 12
 
-	%elif ((i &amp; 3) == 2)
+	%elif ((i & 3) == 2)
 		psrld   W, 31
 		pslld   W_TMP, 1
 		por     W_TMP, W
@@ -434,12 +434,12 @@ default rel
 		psrld   W_TMP2, 30
 		pslld   W, 2
 
-	%elif ((i &amp; 3) == 3)
+	%elif ((i & 3) == 3)
 		pxor    W_TMP, W
 		pxor    W_TMP, W_TMP2
 		movdqa  W, W_TMP
 		paddd   W_TMP, [K_BASE + K_XMM]
-		movdqa  [WK(i&amp;~3)],W_TMP
+		movdqa  [WK(i&~3)],W_TMP
 
 		W_PRECALC_ROTATE
 
@@ -452,25 +452,25 @@ default rel
 	;; instead we do equal:    w[i] = (w[i-6] ^ w[i-16] ^ w[i-28] ^ w[i-32]) rol 2
 	;; allows more efficient vectorization since w[i]=>w[i-3] dependency is broken
 
-	%if ((i &amp; 3) == 0)    ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
+	%if ((i & 3) == 0)    ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
 		movdqa  W_TMP, W_minus_04
 		pxor    W, W_minus_28         ;; W is W_minus_32 before xor
 		palignr W_TMP, W_minus_08, 8
 
-	%elif ((i &amp; 3) == 1)
+	%elif ((i & 3) == 1)
 		pxor    W, W_minus_16
 		pxor    W, W_TMP
 		movdqa  W_TMP, W
 
-	%elif ((i &amp; 3) == 2)
+	%elif ((i & 3) == 2)
 		psrld   W, 30
 		pslld   W_TMP, 2
 		por     W_TMP, W
 
-	%elif ((i &amp; 3) == 3)
+	%elif ((i & 3) == 3)
 		movdqa  W, W_TMP
 		paddd   W_TMP, [K_BASE + K_XMM]
-		movdqa  [WK(i&amp;~3)],W_TMP
+		movdqa  [WK(i&~3)],W_TMP
 
 		W_PRECALC_ROTATE
 	%endif

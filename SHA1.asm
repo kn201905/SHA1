@@ -43,18 +43,23 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 
 
 %macro W_PRECALC_RESET 0
-	%xdefine    W             W0
-	%xdefine    W_minus_04    W4
-	%xdefine    W_minus_08    W8
-	%xdefine    W_minus_12    W12
-	%xdefine    W_minus_16    W16
-	%xdefine    W_minus_20    W20
-	%xdefine    W_minus_24    W24
-	%xdefine    W_minus_28    W28
-	%xdefine    W_minus_32    W
+	%xdefine    W             W0	; W0 = xmm1
+	%xdefine    W_minus_04    W4	; W4 = xmm2
+	%xdefine    W_minus_08    W8	; W8 = xmm3
+	%xdefine    W_minus_12    W12	; W12 = xmm4
+	%xdefine    W_minus_16    W16	; W16 = xmm5
+	%xdefine    W_minus_20    W20	; W20 = xmm6
+	%xdefine    W_minus_24    W24	; W24 = xmm7
+	%xdefine    W_minus_28    W28	; W28 = xmm8
+	%xdefine    W_minus_32    W		; W = W0 = xmm1
 %endmacro
 
 
+; W が xmm1 -> xmm8 -> xmm7 -> xmm6 -> xmm5 とローテーションする
+; W_minus_04 が xmm2 -> xmm1 -> xmm8 -> xmm7 -> xmm6
+; W_minus_08 が xmm3 -> xmm2 -> xmm1 -> xmm8 -> xmm7
+; W_minus_12 が xmm4 -> xmm3 -> xmm2 -> xmm1 -> xmm8
+; W_minus_16 が xmm5 -> xmm4 -> xmm3 -> xmm2 -> xmm1
 %macro W_PRECALC_ROTATE 0
 	%xdefine    W_minus_32    W_minus_28
 	%xdefine    W_minus_28    W_minus_24
@@ -64,7 +69,7 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 	%xdefine    W_minus_12    W_minus_08
 	%xdefine    W_minus_08    W_minus_04
 	%xdefine    W_minus_04    W
-	%xdefine    W             W_minus_32
+	%xdefine    W             W_minus_32	; W_minus_32 = W_minus_28
 %endmacro
 
 
@@ -74,11 +79,11 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 
 %macro W_PRECALC_00_15 0   ;; message scheduling pre-compute for rounds 0-15
 	%if ((i & 3) == 0)       ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
-		movdqu	W_TMP, [BUFFER_PTR + (i * 4)]  ; BUFFER_PTR = r10
+		movdqu	W_TMP, [BUFFER_PTR + (i * 4)]	; W_TMP = xmm0, BUFFER_PTR = r10
 
 	%elif ((i & 3) == 1)
-		pshufb	W_TMP, XMM_SHUFB_BSWAP  ; W_TMP = xmm0
-		movdqa	W, W_TMP
+		pshufb	W_TMP, XMM_SHUFB_BSWAP	; W_TMP = xmm0
+		movdqa	W, W_TMP				; xmm1 -> xmm8 -> xmm7 -> xmm6 の順に値が設定される
 
 	%elif ((i & 3) == 2)
 		paddd	W_TMP, [K_BASE]  ; K_BASE = r8 = K_XMM_AR, paddd = Packed ADD 32bits
@@ -86,6 +91,50 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 	%elif ((i & 3) == 3)
 		movdqa	[WK(i&~3)], W_TMP  ; WK(0), WK(4), WK(8), W(12) のいずれかになる
 		W_PRECALC_ROTATE
+	%endif
+%endmacro
+
+
+%macro W_PRECALC_16_31 0
+;; message scheduling pre-compute for rounds 16-31
+;; calculating last 32 w[i] values in 8 XMM registers
+;; pre-calculate K+w[i] values and store to mem, for later load by ALU add instruction
+;;
+;; "brute force" vectorization for rounds 16-31 only due to w[i]->w[i-3] dependency
+
+; 一番初めて来たときを (一) とする
+
+	%if ((i & 3) == 0)    ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
+		movdqa  W, W_minus_12		; (一) W_minus_12 = W7 W6 W5 W4
+		palignr W, W_minus_16, 8	; w[i-14], (一) W_minus_16 = W3 W2 W1 W0 -> W = W5 W4 W3 W2
+		movdqa  W_TMP, W_minus_04	; (一) W_minus_04 = W15 W14 W13 W12
+		psrldq  W_TMP, 4			; w[i-3], (一) W_TMP = 0 W15 W14 W13
+		pxor    W, W_minus_08		; (一) W_minus_08 = W11 W10 W9 W8 -> W = (W11 W10 W9 W8) ^ (W5 W4 W3 W2)
+
+	%elif ((i & 3) == 1)
+		pxor    W_TMP, W_minus_16	; (一) W_TMP = (0 W15 W14 W13) ^ (W3 W2 W1 W0)
+		pxor    W, W_TMP			; (一) W = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
+		movdqa  W_TMP2, W			; (一) W_TMP2 = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
+		movdqa  W_TMP, W			; (一) W_TMP = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
+		pslldq  W_TMP2, 12			; (一) W_TMP2 = (W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0)
+
+	%elif ((i & 3) == 2)
+		psrld   W, 31
+		pslld   W_TMP, 1
+		por     W_TMP, W			; W_TMP = S^1((0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0))
+		movdqa  W, W_TMP2			; W = (W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0)
+		psrld   W_TMP2, 30			; W_TMP2 = R^30((W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0))
+		pslld   W, 2				; W = S^2((W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0))
+
+	%elif ((i & 3) == 3)
+		pxor    W_TMP, W
+		pxor    W_TMP, W_TMP2
+		movdqa  W, W_TMP
+		paddd   W_TMP, [K_BASE + K_XMM]
+		movdqa  [WK(i&~3)],W_TMP
+
+		W_PRECALC_ROTATE
+
 	%endif
 %endmacro
 
@@ -114,9 +163,7 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 		%endif
 
 	%elif (i < 32)
-;;; =============================
-;;; テスト中
-;;;		W_PRECALC_16_31
+		W_PRECALC_16_31
 
 	%elif (i < 80)   ;; rounds 32-79
 ;;; =============================
@@ -136,12 +183,7 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 
 
 %macro RR 6		;; RR does two rounds of SHA-1 back to back with W pre-calculation
-	;;     TEMP = A
-	;;     A = F( i, B, C, D ) + E + ROTATE_LEFT( A, 5 ) + W[i] + K(i)
-	;;     C = ROTATE_LEFT( B, 30 )
-	;;     D = C
-	;;     E = D
-	;;     B = TEMP
+; %1 = C_2,  %2 = D_2,  %3 = E_2,  %4 = A_2,  %5 = B_2
 
 	W_PRECALC (%6 + W_PRECALC_AHEAD)	; W_PRECALC_AHEAD は常に 16
 	F    %2, %3, %4     ;; F returns result in T1
@@ -161,9 +203,6 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 	F    %1, %2, %3    ;; F returns result in T1
 	add  %4, T1
 	rol  %1, 30
-
-	;; write:  %1, %2
-	;; rotate: %1<=%4, %2<=%5, %3<=%1, %4<=%2, %5<=%3
 %endmacro
 
 
@@ -178,10 +217,15 @@ section .data align=128
 	align 128
 
 K_XMM_AR:
-	DD K1, K1, K1, K1
+	DD 0x00010203, 0x04050607, 0x08090a0b, 0x0c0d0e0f  ;; 03 02 01 00  07 06 05 04 ...
 	DD K2, K2, K2, K2
 	DD K3, K3, K3, K3
 	DD K4, K4, K4, K4
+
+;;;	DD K1, K1, K1, K1
+;;;	DD K2, K2, K2, K2
+;;;	DD K3, K3, K3, K3
+;;;	DD K4, K4, K4, K4
 
 	align 16
 
@@ -234,7 +278,7 @@ sha1_update_intel:   ;; コード開始位置
 
 	%assign i 0
 	%rep    W_PRECALC_AHEAD	; = 16
-		W_PRECALC i			; 0 <= i <= 15
+		W_PRECALC i			; i = 0,...,15
 		%assign i i+1
 	%endrep
 
@@ -251,11 +295,11 @@ pp_loop:
 pp_begin:
 	%endif
 
-	RR A,B,C,D,E,0
-	RR D,E,A,B,C,2
-	RR B,C,D,E,A,4
-	RR E,A,B,C,D,6
-	RR C,D,E,A,B,8
+;;;	RR A,B,C,D,E,0
+;;;	RR D,E,A,B,C,2
+;;;	RR B,C,D,E,A,4
+;;;	RR E,A,B,C,D,6
+;;;	RR C,D,E,A,B,8
 
 
 
@@ -270,13 +314,29 @@ pp_end:		; <<SHA1_PIPELINED_MAIN_BODY_END>>
 
 ;;; ==================
 ;;; テストコード
+	movdqu	xmm0, [rsp]
+	movdqa	xmm1, xmm0;
+	paddq	xmm0, xmm1
+	movdqu	[rsp], xmm0
+
+	palignr	xmm0, xmm1, 8;
+	movdqu	[rsp + 16], xmm1
+	movdqu	[rsp + 32], xmm0
+
 	movq	rcx, xmm15  ; 第４引数の復帰
-	vmovdqu	ymm0, [rsp]  ; 32bytes コピー
-	vmovdqa [rcx], ymm0
-	vmovdqu	ymm0, [rsp + 32]  ; 32bytes コピー
-	vmovdqa [rcx + 32], ymm0
+	vmovdqu	ymm0, [rsp]
+	vmovdqa [rcx], ymm0  ; 32bytes コピー
+	vmovdqu	ymm0, [rsp + 32]
+	vmovdqa [rcx + 32], ymm0  ; 32bytes コピー
 	mov		rax, [rsp + 64]  ; 8bytes コピー
 	mov		[rcx + 64], rax
+
+	movdqu	xmm0, [rcx + 72]
+
+	movdqu	[rcx + 72], xmm0
+	pshufb	xmm0, XMM_SHUFB_BSWAP
+	movdqu	[rcx + 88], xmm0
+
 ;;; ==================
 
 	add		rsp, stack_size

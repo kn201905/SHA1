@@ -29,6 +29,56 @@ void sha1_process_x86(uint32_t state[5], uint32_t* data)
 }
 */
 
+uint8_t*  G_cout_16bytes(uint8_t* psrc)
+{
+	auto  tohex = [](uint8_t chr) -> char { return  chr < 10 ? chr + 0x30 : chr + 0x30 + 7 + 0x20; };
+	char  hex[4] = { 0, 0, 0x20, 0 };
+	std::string  str;
+
+	for (int i = 0; i < 16; ++i)
+	{
+		uint8_t  a = *psrc++;
+		hex[0] = tohex( a >> 4 );
+		hex[1] = tohex( a & 0xf );
+		str += hex;
+
+		if ((i & 3) == 3) { str += ' '; }
+	}
+	std::cout << str << std::endl;
+
+	return  psrc;
+}
+
+void  G_cout_ui32(uint32_t srcval)
+{
+	auto  tohex = [](uint8_t chr) -> char { return  chr < 10 ? chr + 0x30 : chr + 0x30 + 7 + 0x20; };
+	auto  cout_bytes = [&](uint8_t byte, char* pdst) {
+		*pdst++ = tohex( byte >> 4);
+		*pdst = tohex( byte & 0xf );
+	};
+	char  hexes[] = "00 00 00 00  ";
+
+	cout_bytes( srcval >> 24, hexes);
+
+	srcval &= 0xff'ffff;
+	cout_bytes( srcval >> 16, hexes + 3);
+
+	srcval &= 0xffff;
+	cout_bytes( srcval >> 8, hexes + 6);
+
+	cout_bytes( srcval & 0xff, hexes + 9);
+
+	std::cout << hexes;
+}
+
+void  G_out_ui32_4(uint32_t* psrc_ui32)
+{
+	for (int i = 0; i < 4; ++i)
+	{ G_cout_ui32(*psrc_ui32++); }
+	std::cout << std::endl;
+}
+
+
 // メイン関数
 int main()
 {
@@ -49,61 +99,150 @@ int main()
 
 	char __attribute__ ((aligned (16))) data[64];
     memset(data, 0, sizeof(data));
-	data[0] = 0x80;
+	data[0] = 0x30;
+	data[1] = 0x80;
+	data[63] = 8;
 
 	//sha1_update_intel(state, data, 1);
 
 // ====================
 // テストコード
-	char __attribute__ ((aligned (32))) stack[72];  // vmovdaq の利用のため
-	const uint64_t  retv = sha1_update_intel(state, data, 1, stack);
-
-
-	std::cout << "stack 内容\n";
-	auto  tohex = [](uint8_t chr) -> char { return  chr < 10 ? chr + 0x30 : chr + 0x30 + 7 + 0x20; };
-
-	uint8_t*  psrc = (uint8_t*)stack;
-	std::string  str;
-	char  hex[4] = { 0, 0, 0x20, 0 };
-
-	for (int j = 0; j < 4; ++j)
 	{
-		for (int i = 0; i < 16; ++i)
+		char __attribute__ ((aligned (32))) stack[160];  // vmovdaq の利用のため
+
+		uint8_t*  psrc = (uint8_t*)(stack + 72);  // 72 = 16 * 4 + 8（スタック + rax）
+		for (uint8_t i = 0; i < 32; ++i)
+		{ *psrc++ = i; }
+
+		// アセンブラ呼び出し
+		const uint64_t  retv = sha1_update_intel(state, data, 1, stack);
+
+
+		std::cout << "stack 内容\n";
+		auto  tohex = [](uint8_t chr) -> char { return  chr < 10 ? chr + 0x30 : chr + 0x30 + 7 + 0x20; };
+
+	//	uint8_t* psrc = (uint8_t*)stack;
+		psrc = (uint8_t*)stack;
+		std::string  str;
+		char  hex[4] = { 0, 0, 0x20, 0 };
+
+		for (int j = 0; j < 4; ++j)
+		{ psrc = G_cout_16bytes(psrc); }
+
+		for (int i = 0; i < 8; ++i)
 		{
 			uint8_t  a = *psrc++;
 			hex[0] = tohex( a >> 4 );
 			hex[1] = tohex( a & 0xf );
 			str += hex;
-
-			if ((i & 3) == 3) { str += ' '; }
 		}
 		std::cout << str << std::endl;
 		str.clear();
+
+		for (int j = 0; j < 2; ++j)
+		{ psrc = G_cout_16bytes(psrc); }
 	}
 
-	for (int i = 0; i < 8; ++i)
+
+
+
+
+	uint32_t  W[80];
+	uint8_t*  psrc_ui8 = (uint8_t*)data;
+	int  w_idx = 0;
+	for (int i = 0; i < 16; ++i)
 	{
-		uint8_t  a = *psrc++;
-		hex[0] = tohex( a >> 4 );
-		hex[1] = tohex( a & 0xf );
-		str += hex;
+		const uint8_t a = *psrc_ui8++;
+		const uint8_t b = *psrc_ui8++;
+		const uint8_t c = *psrc_ui8++;
+		const uint8_t d = *psrc_ui8++;
+
+		W[w_idx] = (a << 24) + (b << 16) + (c << 8) + d;
+		w_idx++;
 	}
-	std::cout << str << std::endl;
 
-#if false
-	std::stringstream  ss;
-	ss << "retv: " << std::hex << retv;
-	std::cout << ss.str() << std::endl;
-#endif
+	for (int t = 16; t < 80; ++t)
+	{
+		const uint32_t  preW = W[t-3] ^ W[t-8] ^ W[t-14] ^ W[t-16];
+		W[t] = (preW << 1) | (preW >> 31);
+	}
 
-#if false
-	std::cout << "SHA1 hash of empty message: DA39A3EE 5E6B4B0D...\n";
+	std::cout << std::endl;
 
-	std::stringstream  ss;
-	ss << "state: " << std::hex << state[0] << " " << std::hex << state[1];
-	
-	std::cout << ss.str() << std::endl;
-#endif
+	uint32_t*  psrc_ui32 = W;
+	for (int i = 0; i < 5; ++i)
+	{
+		G_out_ui32_4(psrc_ui32);
+		psrc_ui32 += 4;
+	}
+
+
+	uint32_t  a, b, c, d, e, temp;
+	uint32_t  h0 = 0x6745'2301;
+	uint32_t  h1 = 0xEFCD'AB89;
+	uint32_t  h2 = 0x98BA'DCFE;
+	uint32_t  h3 = 0x1032'5476;
+	uint32_t  h4 = 0xC3D2'E1F0;
+	a = h0;  b = h1;  c = h2;  d = h3;  e = h4;
+
+	auto  S5 = [](uint32_t a) -> uint32_t { return (a << 5) | (a >> 27); };
+	auto  S30 = [](uint32_t a) -> uint32_t { return (a << 30) | (a >> 2); };
+
+	int t = 0;
+	for (; t < 20; ++t)
+	{
+		temp = S5(a) + ((b & c) | ((~b) & d)) + e + W[t] + 0x5a82'7999;
+		e = d;
+		d = c;
+		c = S30(b);
+		b = a;
+		a = temp;
+	}
+
+	for (; t < 40; ++t)
+	{
+		temp = S5(a) + (b ^ c ^ d) + e + W[t] + 0x6ed9'eba1;
+		e = d;
+		d = c;
+		c = S30(b);
+		b = a;
+		a = temp;
+	}
+
+	for (; t < 60; ++t)
+	{
+		temp = S5(a) + ((b & c) | (b & d) | (c & d)) + e + W[t] + 0x8f1b'bcdc;
+		e = d;
+		d = c;
+		c = S30(b);
+		b = a;
+		a = temp;
+	}
+
+	for (; t < 80; ++t)
+	{
+		temp = S5(a) + (b ^ c ^ d) + e + W[t] + 0xca62'c1d6;
+		e = d;
+		d = c;
+		c = S30(b);
+		b = a;
+		a = temp;
+	}
+
+	h0 += a;
+	h1 += b;
+	h2 += c;
+	h3 += d;
+	h4 += e;
+
+	std::cout << std::endl;
+	G_cout_ui32(h0);
+	G_cout_ui32(h1);
+	G_cout_ui32(h2);
+	G_cout_ui32(h3);
+	G_cout_ui32(h4);
+	std::cout << std::endl;
+
     return  0;
 }
 

@@ -7,7 +7,7 @@ cnt（= rdx）: 64bytes バッファの個数（SHA1_VECTOR_ASM で破壊され�
 　rdi, rsi, rdx, rcx, r8, r9
 * 戻り値は rax
 
-K_BASE		: r8 = K_XMM_AR
+K_BASE		: r8 = K_XMM_AR、 K_BASE は K_XMM_AR のアドレスを指していて不変である
 HASH_PTR	: r9
 BUFFER_PTR	: r10
 BUFFER_END	: r11 = buf + cnt * 64
