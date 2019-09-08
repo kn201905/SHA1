@@ -38,7 +38,7 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 
 %xdefine XMM_SHUFB_BSWAP xmm10
 
-;; we keep window of 64 w[i]+K pre-calculated values in a circular buffer
+; we keep window of 64 w[i]+K pre-calculated values in a circular buffer
 %xdefine WK(t) (rsp + (t & 15)*4)
 
 
@@ -114,19 +114,27 @@ default rel  ; デフォルトで RIP相対アドレシングを利用する
 		%endif
 
 	%elif (i < 32)
-; =============================
-; テスト中
-;		W_PRECALC_16_31
+;;; =============================
+;;; テスト中
+;;;		W_PRECALC_16_31
 
 	%elif (i < 80)   ;; rounds 32-79
-; =============================
-; テスト中
-;		W_PRECALC_32_79
+;;; =============================
+;;; テスト中
+;;;		W_PRECALC_32_79
 	%endif
 %endmacro
 
 
-;;----------------------
+%macro F1 3
+	mov T1,%2  ; T1 = eax
+	xor T1,%3
+	and T1,%1
+	xor T1,%3
+%endmacro
+
+
+; ----------------------
 section .data align=128
 
 	%xdefine K1 0x5a827999
@@ -151,30 +159,30 @@ bswap_shufb_ctl:
 	DD 0c0d0e0fh
 
 
-;--------------------------------------------
+; --------------------------------------------
 section .text align=4096
 
 ; 元は SHA1_VECTOR_ASM マクロであった部分
 	align 4096
 
-sha1_update_intel:   ;; entry point
+sha1_update_intel:   ;; コード開始位置
 	push	rbx
 	push	rbp
 
-; ==================
-; テストコード
+;;; ==================
+;;; テストコード
 	movq	xmm15, rcx  ; 第４引数の退避
 
 	%xdefine stack_size (16*4 + 8)  ; 72bytes
 	sub     rsp, stack_size
 
-	mov     HASH_PTR, ctx
-	mov     BUFFER_PTR, buf
+	mov     HASH_PTR, ctx		; 第１引数
+	mov     BUFFER_PTR, buf		;; 第２引数
 
 	%if (multiblock == 1)
-		shl     cnt, 6         ;; mul by 64
-		add     cnt, buf       ;; cnt の内容が破壊される
-		mov     BUFFER_END, cnt
+		shl     cnt, 6			;; mul by 64 , cnt は 第３引数
+		add     cnt, buf		;; cnt の内容が破壊される
+		mov     BUFFER_END, cnt	;; BUFFER_END = r11
 	%endif
 
 	lea     K_BASE, [K_XMM_AR]
@@ -197,8 +205,30 @@ sha1_update_intel:   ;; entry point
 		%assign i i+1
 	%endrep
 
-; ==================
-; テストコード
+	%xdefine F F1
+
+	%if (multiblock == 1)               ; code loops through more than one block
+pp_loop:
+		cmp BUFFER_PTR, K_BASE          ; we use K_BASE value as a signal of a last block,
+		jne pp_begin                    ; it is set below by: cmovae BUFFER_PTR, K_BASE
+		jmp pp_end			; <<SHA1_PIPELINED_MAIN_BODY_END>> へジャンプする
+
+		align 32
+pp_begin:
+	%endif
+
+
+;;; SHA1_PIPELINED_MAIN_BODY の終了付近のコード
+pp_end:		; <<SHA1_PIPELINED_MAIN_BODY_END>>
+;;;	%endif
+
+;;;	%xdefine W_NO_TAIL_PRECALC 0
+;;;	%xdefine F %error
+; %endmacro		; SHA1_PIPELINED_MAIN_BODY の終了
+
+
+;;; ==================
+;;; テストコード
 	movq	rcx, xmm15  ; 第４引数の復帰
 	vmovdqu	ymm0, [rsp]  ; 32bytes コピー
 	vmovdqa [rcx], ymm0
@@ -206,6 +236,7 @@ sha1_update_intel:   ;; entry point
 	vmovdqa [rcx + 32], ymm0
 	mov		rax, [rsp + 64]  ; 8bytes コピー
 	mov		[rcx + 64], rax
+;;; ==================
 
 	add		rsp, stack_size
 	pop		rbp

@@ -7,8 +7,10 @@ cnt（= rdx）: 64bytes バッファの個数（SHA1_VECTOR_ASM で破壊され�
 　rdi, rsi, rdx, rcx, r8, r9
 * 戻り値は rax
 
-BUFFER_END	: buf + cnt * 64
-K_BASE		: K_XMM_AR
+K_BASE		: r8 = K_XMM_AR
+HASH_PTR	: r9
+BUFFER_PTR	: r10
+BUFFER_END	: r11 = buf + cnt * 64
 
 // ----------------------
 実質的なコード開始位置は、SHA1_VECTOR_ASM

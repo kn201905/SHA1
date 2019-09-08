@@ -118,7 +118,7 @@
 
 
 %macro F1 3
-	mov T1,%2
+	mov T1,%2  ; T1 = eax
 	xor T1,%3
 	and T1,%1
 	xor T1,%3
