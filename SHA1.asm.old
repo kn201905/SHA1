@@ -1,166 +1,65 @@
+; https://software.intel.com/en-us/articles/improving-the-performance-of-the-secure-hash-algorithm-1
+; https://www.officedaytime.com/tips/simd.html
 
+global sha1_update_intel
+%assign multiblock 1
 
-;--------------------------------------------
-; macro implements 80 rounds of SHA-1, for one 64-byte block or multiple blocks with s/w pipelining
-;
-; macro param: =0 - process single 64-byte block
-;              =1 - multiple blocks
+bits 64  ; 64bit コードの指定
+default rel  ; デフォルトで RIP相対アドレシングを利用する
 
-%macro SHA1_PIPELINED_MAIN_BODY 1
+%xdefine ctx rdi
+%xdefine buf rsi
+%xdefine cnt rdx
 
-	mov A, [HASH_PTR   ]
-	mov B, [HASH_PTR+ 4]
-	mov C, [HASH_PTR+ 8]
-	mov D, [HASH_PTR+12]
-	mov E, [HASH_PTR+16]
+%xdefine A ecx
+%xdefine B esi
+%xdefine C edi
+%xdefine D ebp
+%xdefine E edx
+%xdefine T1 eax
+%xdefine T2 ebx
 
-	%assign i 0
-	%rep    W_PRECALC_AHEAD
-		W_PRECALC i
-		%assign i i+1
-	%endrep
+%xdefine K_BASE     r8
+%xdefine HASH_PTR   r9
+%xdefine BUFFER_PTR r10
+%xdefine BUFFER_END r11
 
-	%xdefine F F1
+%xdefine W_TMP  xmm0
+%xdefine W_TMP2 xmm9
 
-	%if (%1 == 1)                         ;; code loops through more than one block
-%%_loop:
-		cmp BUFFER_PTR, K_BASE          ;; we use K_BASE value as a signal of a last block,
-		jne %%_begin                    ;; it is set below by: cmovae BUFFER_PTR, K_BASE
-		jmp %%_end
+%xdefine W0  xmm1
+%xdefine W4  xmm2
+%xdefine W8  xmm3
+%xdefine W12 xmm4
+%xdefine W16 xmm5
+%xdefine W20 xmm6
+%xdefine W24 xmm7
+%xdefine W28 xmm8
 
-		align 32
-%%_begin:
-	%endif
+%xdefine XMM_SHUFB_BSWAP xmm10
 
-	RR A,B,C,D,E,0
-	RR D,E,A,B,C,2
-	RR B,C,D,E,A,4
-	RR E,A,B,C,D,6
-	RR C,D,E,A,B,8
-
-	RR A,B,C,D,E,10
-	RR D,E,A,B,C,12
-	RR B,C,D,E,A,14
-	RR E,A,B,C,D,16
-	RR C,D,E,A,B,18
-
-	%xdefine F F2
-
-	RR A,B,C,D,E,20
-	RR D,E,A,B,C,22
-	RR B,C,D,E,A,24
-	RR E,A,B,C,D,26
-	RR C,D,E,A,B,28
-
-	RR A,B,C,D,E,30
-	RR D,E,A,B,C,32
-	RR B,C,D,E,A,34
-	RR E,A,B,C,D,36
-	RR C,D,E,A,B,38
-
-	%xdefine F F3
-
-	RR A,B,C,D,E,40
-	RR D,E,A,B,C,42
-	RR B,C,D,E,A,44
-	RR E,A,B,C,D,46
-	RR C,D,E,A,B,48
-
-	RR A,B,C,D,E,50
-	RR D,E,A,B,C,52
-	RR B,C,D,E,A,54
-	RR E,A,B,C,D,56
-	RR C,D,E,A,B,58
-
-	%xdefine F F4
-
-	%if (%1 == 1)                         ;; if code loops through more than one block
-
-		add   BUFFER_PTR, 64            ;; move to next 64-byte block
-		cmp   BUFFER_PTR, BUFFER_END    ;; check if current block is the last one
-		cmovae BUFFER_PTR, K_BASE       ;; smart way to signal the last iteration
-
-	%else
-
-		%xdefine W_NO_TAIL_PRECALC 1    ;; no software pipelining for single block interface
-
-	%endif
-
-	RR A,B,C,D,E,60
-	RR D,E,A,B,C,62
-	RR B,C,D,E,A,64
-	RR E,A,B,C,D,66
-	RR C,D,E,A,B,68
-
-	RR A,B,C,D,E,70
-	RR D,E,A,B,C,72
-	RR B,C,D,E,A,74
-	RR E,A,B,C,D,76
-	RR C,D,E,A,B,78
-
-	UPDATE_HASH [HASH_PTR   ],A
-	UPDATE_HASH [HASH_PTR+ 4],B
-	UPDATE_HASH [HASH_PTR+ 8],C
-	UPDATE_HASH [HASH_PTR+12],D
-	UPDATE_HASH [HASH_PTR+16],E
-
-	%if (%1 == 1)
-
-		jmp %%_loop
-
-		align 32  
-%%_end:
-	%endif
-
-	%xdefine W_NO_TAIL_PRECALC 0
-	%xdefine F %error
-%endmacro
-
-
-%macro F1 3
-	mov T1,%2  ; T1 = eax
-	xor T1,%3
-	and T1,%1
-	xor T1,%3
-%endmacro
-
-%macro F2 3
-	mov T1,%3
-	xor T1,%2
-	xor T1,%1
-%endmacro
-
-%macro F3 3
-	mov T1,%2
-	mov T2,%1
-	or  T1,%1
-	and T2,%2
-	and T1,%3
-	or  T1,T2
-%endmacro
-
-%define F4 F2
-
-%macro UPDATE_HASH 2
-	add %2, %1
-	mov %1, %2
-%endmacro
-
+; we keep window of 64 w[i]+K pre-calculated values in a circular buffer
+%xdefine WK(t) (rsp + (t & 15)*4)
 
 
 %macro W_PRECALC_RESET 0
-	%xdefine    W             W0
-	%xdefine    W_minus_04    W4
-	%xdefine    W_minus_08    W8
-	%xdefine    W_minus_12    W12
-	%xdefine    W_minus_16    W16
-	%xdefine    W_minus_20    W20
-	%xdefine    W_minus_24    W24
-	%xdefine    W_minus_28    W28
-	%xdefine    W_minus_32    W
+	%xdefine    W             W0	; W0 = xmm1
+	%xdefine    W_minus_04    W4	; W4 = xmm2
+	%xdefine    W_minus_08    W8	; W8 = xmm3
+	%xdefine    W_minus_12    W12	; W12 = xmm4
+	%xdefine    W_minus_16    W16	; W16 = xmm5
+	%xdefine    W_minus_20    W20	; W20 = xmm6
+	%xdefine    W_minus_24    W24	; W24 = xmm7
+	%xdefine    W_minus_28    W28	; W28 = xmm8
+	%xdefine    W_minus_32    W		; W = W0 = xmm1
 %endmacro
 
 
+; W が xmm1 -> xmm8 -> xmm7 -> xmm6 -> xmm5 とローテーションする
+; W_minus_04 が xmm2 -> xmm1 -> xmm8 -> xmm7 -> xmm6
+; W_minus_08 が xmm3 -> xmm2 -> xmm1 -> xmm8 -> xmm7
+; W_minus_12 が xmm4 -> xmm3 -> xmm2 -> xmm1 -> xmm8
+; W_minus_16 が xmm5 -> xmm4 -> xmm3 -> xmm2 -> xmm1
 %macro W_PRECALC_ROTATE 0
 	%xdefine    W_minus_32    W_minus_28
 	%xdefine    W_minus_28    W_minus_24
@@ -170,63 +69,62 @@
 	%xdefine    W_minus_12    W_minus_08
 	%xdefine    W_minus_08    W_minus_04
 	%xdefine    W_minus_04    W
-	%xdefine    W             W_minus_32
+	%xdefine    W             W_minus_32	; W_minus_32 = W_minus_28
 %endmacro
+
 
 %xdefine W_PRECALC_AHEAD   16
 %xdefine W_NO_TAIL_PRECALC 0
 
-%xdefine xmm_mov            movdqa
 
+%macro W_PRECALC_00_15 0   ;; message scheduling pre-compute for rounds 0-15
+	%if ((i & 3) == 0)       ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
+		movdqu	W_TMP, [BUFFER_PTR + (i * 4)]	; W_TMP = xmm0, BUFFER_PTR = r10
 
-%macro W_PRECALC_00_15 0
-	;; message scheduling pre-compute for rounds 0-15
+	%elif ((i & 3) == 1)
+		pshufb	W_TMP, XMM_SHUFB_BSWAP	; W_TMP = xmm0
+		movdqa	W, W_TMP				; xmm1 -> xmm8 -> xmm7 -> xmm6 の順に値が設定される
 
-	%if ((i &amp; 3) == 0)       ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
-		movdqu W_TMP, [BUFFER_PTR + (i * 4)]
+	%elif ((i & 3) == 2)
+		paddd	W_TMP, [K_BASE]  ; K_BASE = r8 = K_XMM_AR, paddd = Packed ADD 32bits
 
-	%elif ((i &amp; 3) == 1)
-		pshufb W_TMP, XMM_SHUFB_BSWAP
-		movdqa W, W_TMP
-
-	%elif ((i &amp; 3) == 2)
-		paddd  W_TMP, [K_BASE]
-
-	%elif ((i &amp; 3) == 3)
-		movdqa  [WK(i&amp;~3)], W_TMP
+	%elif ((i & 3) == 3)
+		movdqa	[WK(i&~3)], W_TMP  ; WK(0), WK(4), WK(8), W(12) のいずれかになる
 		W_PRECALC_ROTATE
 	%endif
 %endmacro
 
 
 %macro W_PRECALC_16_31 0
-	;; message scheduling pre-compute for rounds 16-31
-	;; calculating last 32 w[i] values in 8 XMM registers
-	;; pre-calculate K+w[i] values and store to mem, for later load by ALU add instruction
-	;;
-	;; "brute force" vectorization for rounds 16-31 only due to w[i]->w[i-3] dependency
+;; message scheduling pre-compute for rounds 16-31
+;; calculating last 32 w[i] values in 8 XMM registers
+;; pre-calculate K+w[i] values and store to mem, for later load by ALU add instruction
+;;
+;; "brute force" vectorization for rounds 16-31 only due to w[i]->w[i-3] dependency
+
+; 一番初めて来たときを (一) とする
 
 	%if ((i & 3) == 0)    ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
-		movdqa  W, W_minus_12
-		palignr W, W_minus_16, 8       ;; w[i-14]
-		movdqa  W_TMP, W_minus_04
-		psrldq  W_TMP, 4               ;; w[i-3]
-		pxor    W, W_minus_08
+		movdqa  W, W_minus_12		; (一) W_minus_12 = W7 W6 W5 W4
+		palignr W, W_minus_16, 8	; w[i-14], (一) W_minus_16 = W3 W2 W1 W0 -> W = W5 W4 W3 W2
+		movdqa  W_TMP, W_minus_04	; (一) W_minus_04 = W15 W14 W13 W12
+		psrldq  W_TMP, 4			; w[i-3], (一) W_TMP = 0 W15 W14 W13
+		pxor    W, W_minus_08		; (一) W_minus_08 = W11 W10 W9 W8 -> W = (W11 W10 W9 W8) ^ (W5 W4 W3 W2)
 
 	%elif ((i & 3) == 1)
-		pxor    W_TMP, W_minus_16
-		pxor    W, W_TMP
-		movdqa  W_TMP2, W
-		movdqa  W_TMP, W
-		pslldq  W_TMP2, 12
+		pxor    W_TMP, W_minus_16	; (一) W_TMP = (0 W15 W14 W13) ^ (W3 W2 W1 W0)
+		pxor    W, W_TMP			; (一) W = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
+		movdqa  W_TMP2, W			; (一) W_TMP2 = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
+		movdqa  W_TMP, W			; (一) W_TMP = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
+		pslldq  W_TMP2, 12			; (一) W_TMP2 = (W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0)
 
 	%elif ((i & 3) == 2)
 		psrld   W, 31
 		pslld   W_TMP, 1
-		por     W_TMP, W
-		movdqa  W, W_TMP2
-		psrld   W_TMP2, 30
-		pslld   W, 2
+		por     W_TMP, W			; W_TMP = S^1((0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0))
+		movdqa  W, W_TMP2			; W = (W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0)
+		psrld   W_TMP2, 30			; W_TMP2 = R^30((W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0))
+		pslld   W, 2				; W = S^2((W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0))
 
 	%elif ((i & 3) == 3)
 		pxor    W_TMP, W
@@ -241,41 +139,74 @@
 %endmacro
 
 
-%macro W_PRECALC_32_79 0
-	;; in SHA-1 specification: w[i] = (w[i-3] ^ w[i-8]  ^ w[i-14] ^ w[i-16]) rol 1
-	;; instead we do equal:    w[i] = (w[i-6] ^ w[i-16] ^ w[i-28] ^ w[i-32]) rol 2
-	;; allows more efficient vectorization since w[i]=>w[i-3] dependency is broken
+%macro W_PRECALC 1
+	%xdefine i (%1)
 
-	%if ((i &amp; 3) == 0)    ;; blended SSE and ALU instruction scheduling, 1 vector iteration per 4 rounds
-		movdqa  W_TMP, W_minus_04
-		pxor    W, W_minus_28         ;; W is W_minus_32 before xor
-		palignr W_TMP, W_minus_08, 8
+	%if (i < 20)
+		%xdefine K_XMM  0
+	%elif (i < 40)
+		%xdefine K_XMM  16
+	%elif (i < 60)
+		%xdefine K_XMM  32
+	%else
+		%xdefine K_XMM  48
+	%endif
 
-	%elif ((i &amp; 3) == 1)
-		pxor    W, W_minus_16
-		pxor    W, W_TMP
-		movdqa  W_TMP, W
+	%if (i < 16 || (i >= 80 && i < (80 + W_PRECALC_AHEAD)))	;; i = 0,...,15 , 80,...,95
+		%if (W_NO_TAIL_PRECALC == 0)
+			%xdefine i ((%1) % 80)        ;; pre-compute for the next iteration
+			%if (i == 0)
+				W_PRECALC_RESET
+			%endif
 
-	%elif ((i &amp; 3) == 2)
-		psrld   W, 30
-		pslld   W_TMP, 2
-		por     W_TMP, W
+			W_PRECALC_00_15
+		%endif
 
-	%elif ((i &amp; 3) == 3)
-		movdqa  W, W_TMP
-		paddd   W_TMP, [K_BASE + K_XMM]
-		movdqa  [WK(i&amp;~3)],W_TMP
+	%elif (i < 32)
+		W_PRECALC_16_31
 
-		W_PRECALC_ROTATE
+	%elif (i < 80)   ;; rounds 32-79
+;;; =============================
+;;; テスト中
+;;;		W_PRECALC_32_79
 	%endif
 %endmacro
 
 
-;;; %macro RR 6      ;; RR does two rounds of SHA-1 back to back with W pre-calculation
-;;; %endmacro
+; 以下は、T1 = (%1 and %2) or (not(%1) and %3) と等価
+%macro F1 3
+	mov T1,%2  ; T1 = eax
+	xor T1,%3  ; T1 = %2 xor %3
+	and T1,%1
+	xor T1,%3
+%endmacro
 
 
-;;----------------------
+%macro RR 6		;; RR does two rounds of SHA-1 back to back with W pre-calculation
+; %1 = C_2,  %2 = D_2,  %3 = E_2,  %4 = A_2,  %5 = B_2
+
+	W_PRECALC (%6 + W_PRECALC_AHEAD)	; W_PRECALC_AHEAD は常に 16
+	F    %2, %3, %4     ;; F returns result in T1
+	add  %5, [WK(%6)]
+	rol  %2, 30
+	mov  T2, %1
+	add  %4, [WK(%6 + 1)]
+	rol  T2, 5
+	add  %5, T1
+
+	W_PRECALC (%6 + W_PRECALC_AHEAD + 1)
+	add  T2, %5
+	mov  %5, T2
+	rol  T2, 5
+	add  %4, T2
+
+	F    %1, %2, %3    ;; F returns result in T1
+	add  %4, T1
+	rol  %1, 30
+%endmacro
+
+
+; ----------------------
 section .data align=128
 
 	%xdefine K1 0x5a827999
@@ -286,10 +217,15 @@ section .data align=128
 	align 128
 
 K_XMM_AR:
-	DD K1, K1, K1, K1
+	DD 0x00010203, 0x04050607, 0x08090a0b, 0x0c0d0e0f  ;; 03 02 01 00  07 06 05 04 ...
 	DD K2, K2, K2, K2
 	DD K3, K3, K3, K3
 	DD K4, K4, K4, K4
+
+;;;	DD K1, K1, K1, K1
+;;;	DD K2, K2, K2, K2
+;;;	DD K3, K3, K3, K3
+;;;	DD K4, K4, K4, K4
 
 	align 16
 
@@ -300,16 +236,111 @@ bswap_shufb_ctl:
 	DD 0c0d0e0fh
 
 
-;;----------------------
-
+; ========================================================
 section .text align=4096
-	SHA1_VECTOR_ASM     sha1_update_intel_ssse3_, multiblock
 
-	align 32
+; 元は SHA1_VECTOR_ASM マクロであった部分
+	align 4096
+
+sha1_update_intel:   ;; ----- コード開始位置
+	push	rbx
+	push	rbp
+
+;;; ==================
+;;; テストコード
+	movq	xmm15, rcx  ; 第４引数の退避
+	mov		r15, r8	; 第５引数の退避
+
+	%xdefine stack_size (16*4 + 8)  ; 72bytes
+	sub     rsp, stack_size
+
+	mov     HASH_PTR, ctx		; 第１引数
+	mov     BUFFER_PTR, buf		;; 第２引数
+
+	%if (multiblock == 1)
+		shl     cnt, 6			;; mul by 64 , cnt は 第３引数
+		add     cnt, buf		;; cnt の内容が破壊される
+		mov     BUFFER_END, cnt	;; BUFFER_END = r11
+	%endif
+
+	lea     K_BASE, [K_XMM_AR]
+	movdqa  XMM_SHUFB_BSWAP, [bswap_shufb_ctl]
+
+;--------------------------------------------
+; macro param: =0 - process single 64-byte block
+;              =1 - multiple blocks
+; %macro SHA1_PIPELINED_MAIN_BODY 1
+
+	mov		A, [HASH_PTR   ]
+	mov		B, [HASH_PTR+ 4]
+	mov		C, [HASH_PTR+ 8]
+	mov		D, [HASH_PTR+12]
+	mov		E, [HASH_PTR+16]
+
+	%rep    W_PRECALC_AHEAD	; = 16
+		W_PRECALC i			; i = 0,...,15
+		%assign i i+1
+	%endrep
+
+	; F1 は、T1 = (%1 and %2) or (not(%1) and %3) を計算する
+	%xdefine F F1
+
+	%if (multiblock == 1)               ; code loops through more than one block
+pp_loop:
+		cmp BUFFER_PTR, K_BASE          ; we use K_BASE value as a signal of a last block,
+		jne pp_begin                    ; it is set below by: cmovae BUFFER_PTR, K_BASE
+		jmp pp_end			; <<SHA1_PIPELINED_MAIN_BODY_END>> へジャンプする
+
+		align 32
+pp_begin:
+	%endif
+
+;;;	RR A,B,C,D,E,0
+;;;	RR D,E,A,B,C,2
+;;;	RR B,C,D,E,A,4
+;;;	RR E,A,B,C,D,6
+;;;	RR C,D,E,A,B,8
 
 
-sha1_update_intel:    ;; C++ から呼び出される最初のアドレス
-	jmp     sha1_update_intel_ssse3_
+
+;;; SHA1_PIPELINED_MAIN_BODY の終了付近のコード
+pp_end:		; <<SHA1_PIPELINED_MAIN_BODY_END>>
+;;;	%endif
+
+;;;	%xdefine W_NO_TAIL_PRECALC 0
+;;;	%xdefine F %error
+; %endmacro		; SHA1_PIPELINED_MAIN_BODY の終了
 
 
+;;; ==================
+;;; テストコード
+	movdqu	xmm0, [rsp]
+	movdqa	xmm1, xmm0;
+	paddq	xmm0, xmm1
+	movdqu	[rsp], xmm0
+
+	palignr	xmm0, xmm1, 8;
+	movdqu	[rsp + 16], xmm1
+	movdqu	[rsp + 32], xmm0
+
+	movq	rcx, xmm15  ; 第４引数の復帰
+	vmovdqu	ymm0, [rsp]
+	vmovdqa [rcx], ymm0  ; 32bytes コピー
+	vmovdqu	ymm0, [rsp + 32]
+	vmovdqa [rcx + 32], ymm0  ; 32bytes コピー
+	mov		rax, [rsp + 64]  ; 8bytes コピー
+	mov		[rcx + 64], rax
+
+	movdqu	xmm0, [rcx + 72]
+
+	movdqu	[rcx + 72], xmm0
+	pshufb	xmm0, XMM_SHUFB_BSWAP
+	movdqu	[rcx + 88], xmm0
+
+;;; ==================
+
+	add		rsp, stack_size
+	pop		rbp
+	pop		rbx
+	ret
 
