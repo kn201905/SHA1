@@ -123,40 +123,30 @@ global sha1_update_intel
 %endmacro
 
 
-%macro W_PRECALC_16_31_old  2
-;; message scheduling pre-compute for rounds 16-31
-;; calculating last 32 w[i] values in 8 XMM registers
-;; pre-calculate K+w[i] values and store to mem, for later load by ALU add instruction
-;;
-;; "brute force" vectorization for rounds 16-31 only due to w[i]->w[i-3] dependency
+%macro W_PRECALC_32_79  2
+;; in SHA-1 specification: w[i] = (w[i-3] ^ w[i-8]  ^ w[i-14] ^ w[i-16]) rol 1
+;; instead we do equal:    w[i] = (w[i-6] ^ w[i-16] ^ w[i-28] ^ w[i-32]) rol 2
 
-	movdqa  W, W_minus_12		; (一) W_minus_12 = W7 W6 W5 W4
-	palignr W, W_minus_16, 8	; w[i-14], (一) W_minus_16 = W3 W2 W1 W0 -> W = W5 W4 W3 W2
-	movdqa  W_TMP, W_minus_04	; (一) W_minus_04 = W15 W14 W13 W12
-	psrldq  W_TMP, 4			; w[i-3], (一) W_TMP = 0 W15 W14 W13
-	pxor    W, W_minus_08		; (一) W_minus_08 = W11 W10 W9 W8 -> W = (W11 W10 W9 W8) ^ (W5 W4 W3 W2)
+	movdqa  W_TMP, W_minus_04		; W_TMP = W31 W30 W29 W28
+	pxor    W, W_minus_28			; W = (W7 W6 W5 W4) ^ (W3 W2 W1 W0)
+	palignr W_TMP, W_minus_08, 8	; W_TMP = W29 W28 W27 W26
 
-	pxor    W_TMP, W_minus_16	; (一) W_TMP = (0 W15 W14 W13) ^ (W3 W2 W1 W0)
-	pxor    W, W_TMP			; (一) W = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
-	movdqa  W_TMP2, W			; (一) W_TMP2 = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
-	movdqa  W_TMP, W			; (一) W_TMP = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
-	pslldq  W_TMP2, 12			; (一) W_TMP2 = (W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0)
+	pxor    W, W_minus_16			; W = (W19 W18 W17 W16) ^ (W7 W6 W5 W4) ^ (W3 W2 W1 W0)
+	pxor    W, W_TMP				; W = (W29 W28 W27 W26) ^ (W19 W18 W17 W16) ^ (W7 W6 W5 W4) ^ (W3 W2 W1 W0)
+	movdqa  W_TMP, W
 
-	psrld   W, 31
-	pslld   W_TMP, 1
-	por     W_TMP, W			; W_TMP = S^1((0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0))
-	movdqa  W, W_TMP2			; W = (W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0)
-	psrld   W_TMP2, 30			; W_TMP2 = R^30((W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0))
-	pslld   W, 2				; W = S^2((W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0))
+	psrld   W, 30
+	pslld   W_TMP, 2
+	por     W_TMP, W				; W_TMP = S^2((W29 W28 W27 W26) ^ (W19 W18 W17 W16) ^ (W7 W6 W5 W4) ^ (W3 W2 W1 W0))
+									;       = W35 W34 W33 W32
 
-	pxor    W_TMP, W
-	pxor    W_TMP, W_TMP2
 	movdqa  W, W_TMP
 	paddd   W_TMP, [K_BASE + %2]
-	movdqa  [WK(%1)], W_TMP
+	movdqa  [WK(%1)],W_TMP
 
 	W_PRECALC_ROTATE
 %endmacro
+
 
 
 %macro W_PRECALC 1
@@ -307,6 +297,21 @@ sha1_update_intel:   ;; ----- コード開始位置
 	W_PRECALC_16_31  4, 16
 	W_PRECALC_16_31  8, 16
 	W_PRECALC_16_31  12, 16
+
+	W_PRECALC_32_79  0, 16
+	W_PRECALC_32_79  4, 16
+	W_PRECALC_32_79  8, 32
+	W_PRECALC_32_79  12, 32
+
+	W_PRECALC_32_79  0, 32
+	W_PRECALC_32_79  4, 32
+	W_PRECALC_32_79  8, 32
+	W_PRECALC_32_79  12, 48
+
+	W_PRECALC_32_79  0, 48
+	W_PRECALC_32_79  4, 48
+	W_PRECALC_32_79  8, 48
+	W_PRECALC_32_79  12, 48
 
 
 ;;; ==================
