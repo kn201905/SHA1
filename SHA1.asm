@@ -1,8 +1,8 @@
 ; https://software.intel.com/en-us/articles/improving-the-performance-of-the-secure-hash-algorithm-1
 ; https://www.officedaytime.com/tips/simd.html
 
-bits 64  ; 64bit コードの指定
-default rel  ; デフォルトで RIP相対アドレシングを利用する
+bits 64			; 64bit コードの指定
+default rel		; デフォルトで RIP相対アドレシングを利用する
 
 global sha1_update_intel
 
