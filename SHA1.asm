@@ -224,16 +224,16 @@ sha1_update_intel:   ;; ----- コード開始位置
 	push	r14
 	push	r15
 
-;;; ==================
-;;; テストコード
-	mov		r15, rdx	; 第３引数（W_asm）
-;;; ==================
-
 	%xdefine stack_size (16*4 + 8)  ; 72bytes
 	sub     rsp, stack_size
 
 	mov     HASH_PTR, ctx		; 第１引数（state）
 	mov     BUFFER_PTR, buf		; 第２引数（data）
+;;; ==================
+;;; テストコード
+	mov		r15, rdx	; 第３引数（W_asm）
+;;; ==================
+
 
 	movdqa  XMM_SHUFB_BSWAP, [bswap_shufb_ctl]
 
