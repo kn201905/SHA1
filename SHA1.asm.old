@@ -344,3 +344,47 @@ pp_end:		; <<SHA1_PIPELINED_MAIN_BODY_END>>
 	pop		rbx
 	ret
 
+
+
+
+
+
+
+	align 32
+
+ORD_CHG_W_VAL:
+	DD  0x1d1e1f20
+	DD  0x191a1b1c
+	DD  0x15161718
+	DD  0x11121314
+	DD  0x0d0e0f10
+	DD  0x090a0b0c
+	DD  0x05060708
+	DD  0x01020304
+
+
+	vmovdqa		ymm15, [bswap_shufb_ctl]
+	vmovdqa		ymm14, [K_XMM_AR2]
+
+	vmovdqa		ymm0, [BUFFER_PTR]
+	vpshufb		ymm1, ymm0, ymm15
+	vpaddd		ymm1, ymm1, ymm14
+
+;;; ==========================================
+;;; pW_asm にデータを保存
+	vmovdqa		[r15], ymm1
+	add			r15, 32
+;;; ==========================================
+
+	vmovdqa		ymm0, [ORD_CHG_W_VAL]
+	vmovdqa		ymm1, ymm0
+	vperm2i128	ymm1, ymm1, ymm1, 1
+
+;;; ==========================================
+;;; pW_asm にデータを保存
+	vmovdqa		[r15], ymm0
+	add			r15, 32
+	pxor		xmm1, xmm1
+	vmovdqa		[r15], ymm1
+	add			r15, 32
+;;; ==========================================

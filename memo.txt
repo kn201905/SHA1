@@ -1,11 +1,14 @@
 
 ctx（= rdi）: hash 値を指すポインタ（20bytes バッファ）
 buf（= rsi）: 元データ（64bytes バッファ）
-cnt（= rdx）: 64bytes バッファの個数（SHA1_VECTOR_ASM で破壊される）
 
 * linux64-abi の規定　第１～６引数 で渡されるレジスタ
 　rdi, rsi, rdx, rcx, r8, r9
 * 戻り値は rax
+
+* linux64-abi で保存すべきレジスタ
+　rbx, rbp, rsp, r12-15, mxcsr（partial）
+
 
 K_BASE		: r8 = K_XMM_AR、 K_BASE は K_XMM_AR のアドレスを指していて不変である
 HASH_PTR	: r9

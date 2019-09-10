@@ -21,7 +21,7 @@ extern void  SHA1_HashMultipleBlocks_SHANI(
 
 //extern "C" void sha1_update_intel(unsigned int* state, const char* data, size_t num_blocks);
 //extern "C" uint64_t sha1_update_intel(unsigned int* state, const char* data, size_t num_blocks);
-extern "C" uint64_t sha1_update_intel(unsigned int* state, const char* data, size_t num_blocks, char* pstack, uint8_t* pW_asm);
+extern "C" uint64_t sha1_update_intel(unsigned int* state, const char* data, char* pstack, uint8_t* pW_asm);
 
 /////////////////////////////////////////////////////////////////////////////////////
 
@@ -110,14 +110,15 @@ int main()
     /* initial state */
     uint32_t state[5] = { 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0 };
 
-	char __attribute__ ((aligned (16))) data[64];
+	char __attribute__ ((aligned (32))) data[64];
     memset(data, 0, sizeof(data));
 	data[0] = 0x30;
 	data[1] = 0x80;
 	data[63] = 8;
 
 	// アセンブラ内での W情報
-	uint8_t __attribute__ ((aligned (32))) W_asm[80];
+	uint8_t __attribute__ ((aligned (32))) W_asm[320];
+	memset(W_asm, 0, sizeof(W_asm));
 
 // ====================
 // テストコード
@@ -131,7 +132,7 @@ int main()
 
 		// ----------------------------------------
 		// アセンブラ呼び出し
-		const uint64_t  retv = sha1_update_intel(state, data, 1, stack, W_asm);
+		const uint64_t  retv = sha1_update_intel(state, data, stack, W_asm);
 
 		// ----------------------------------------
 		// スタック（64 bytes）のダンプ
@@ -183,15 +184,16 @@ int main()
 
 	// ----------------------------------------
 	// W[80] に K値を加える
+/*
 	for (int i = 0; i < 20; ++i) { W[i] += 0x5a82'7999; }
 	for (int i = 20; i < 40; ++i) { W[i] += 0x6ed9'eba1; }
 	for (int i = 40; i < 60; ++i) { W[i] += 0x8f1b'bcdc; }
 	for (int i = 60; i < 80; ++i) { W[i] += 0xca62'c1d6; }
-
+*/
 	// ----------------------------------------
-	// W[80] + K のダンプ
+	// W[80] のダンプ
 	std::cout << std::endl;
-	std::cout << "W[80] + K 値" << std::endl;
+	std::cout << "W[80]" << std::endl;
 
 	uint32_t*  psrc_W = W;
 	for (int i = 0; i < 10; ++i)
@@ -216,7 +218,7 @@ int main()
 	int t = 0;
 	for (; t < 20; ++t)
 	{
-		temp = S5(a) + ((b & c) | ((~b) & d)) + e + W[t];
+		temp = S5(a) + ((b & c) | ((~b) & d)) + e + W[t] + 0x5a82'7999;
 		e = d;
 		d = c;
 		c = S30(b);
@@ -226,7 +228,7 @@ int main()
 
 	for (; t < 40; ++t)
 	{
-		temp = S5(a) + (b ^ c ^ d) + e + W[t];
+		temp = S5(a) + (b ^ c ^ d) + e + W[t] + 0x6ed9'eba1;
 		e = d;
 		d = c;
 		c = S30(b);
@@ -236,7 +238,7 @@ int main()
 
 	for (; t < 60; ++t)
 	{
-		temp = S5(a) + ((b & c) | (b & d) | (c & d)) + e + W[t];
+		temp = S5(a) + ((b & c) | (b & d) | (c & d)) + e + W[t] + 0x8f1b'bcdc;
 		e = d;
 		d = c;
 		c = S30(b);
@@ -246,7 +248,7 @@ int main()
 
 	for (; t < 80; ++t)
 	{
-		temp = S5(a) + (b ^ c ^ d) + e + W[t];
+		temp = S5(a) + (b ^ c ^ d) + e + W[t] + 0xca62'c1d6;
 		e = d;
 		d = c;
 		c = S30(b);
@@ -270,6 +272,21 @@ int main()
 	G_cout_ui32(h3);
 	G_cout_ui32(h4);
 	std::cout << std::endl;
+
+
+	// ----------------------------------------
+	// W_asm と W の値の比較
+	{
+		bool  bsame = true;
+		uint32_t*  pW_asm = (uint32_t*)W_asm;
+		for (int i = 0; i < 80; ++i)
+		{ if (*pW_asm++ != W[i]) { bsame = false; } }
+
+		if (bsame)
+		{ std::cout << "W[] == W_asm[] -> OK!!" << std::endl; }
+		else
+		{ std::cout << "W[] != W_asm[] -> fail.." << std::endl; }
+	}
 
     return  0;
 }
