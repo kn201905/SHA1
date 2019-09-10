@@ -33,6 +33,7 @@ global sha1_update_intel
 %xdefine WK(t) (rsp + (t & 15)*4)
 
 
+; -----------------------------------------
 %macro W_PRECALC_RESET  0
 	%xdefine    W             xmm1
 	%xdefine    W_minus_04    xmm2
@@ -45,12 +46,6 @@ global sha1_update_intel
 	%xdefine    W_minus_32    W
 %endmacro
 
-
-; W が xmm1 -> xmm8 -> xmm7 -> xmm6 -> xmm5 とローテーションする
-; W_minus_04 が xmm2 -> xmm1 -> xmm8 -> xmm7 -> xmm6
-; W_minus_08 が xmm3 -> xmm2 -> xmm1 -> xmm8 -> xmm7
-; W_minus_12 が xmm4 -> xmm3 -> xmm2 -> xmm1 -> xmm8
-; W_minus_16 が xmm5 -> xmm4 -> xmm3 -> xmm2 -> xmm1
 %macro W_PRECALC_ROTATE 0
 	%xdefine    W_minus_32    W_minus_28
 	%xdefine    W_minus_28    W_minus_24
@@ -65,7 +60,7 @@ global sha1_update_intel
 
 
 ; -----------------------------------------
-%macro  DEPO_W_RESET  0
+%macro  DEPO_W_INIT  0
 	%assign  cnt_DEPO_W  1
 	%assign  Yn  10
 %endmacro
@@ -110,15 +105,14 @@ global sha1_update_intel
 	psrldq  W_TMP, 4			; W_TMP = 0 W15 W14 W13
 	pxor    W_TMP, W_minus_16	; W_TMP = (0 W15 W14 W13) ^ (W3 W2 W1 W0)
 	pxor    W, W_TMP			; W = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
-
-	movdqa  W_TMP2, W			; W_TMP2 = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
-	pslldq  W_TMP2, 12			; W_TMP2 = (W13 0 0 0) ^ (W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0)
-
 	movdqa  W_TMP, W			; W_TMP = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
+	movdqa  W_TMP2, W			; W_TMP2 = (0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0)
+
 	pslld   W_TMP, 1
 	psrld   W, 31
 	por     W_TMP, W			; W_TMP = S^1((0 W15 W14 W13) ^ (W11 W10 W9 W8) ^ (W5 W4 W3 W2) ^ (W3 W2 W1 W0))
 
+	pslldq  W_TMP2, 12			; W_TMP2 = (W13 0 0 0) ^ (W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0)
 	movdqa  W, W_TMP2			; W = (W13 0 0 0) ^ (W8 0 0 0) ^ (W2 0 0 0) ^ (W0 0 0 0)
 	pslld   W, 2
 	psrld   W_TMP2, 30
@@ -232,8 +226,7 @@ sha1_update_intel:   ;; ----- コード開始位置
 
 ;;; ==================
 ;;; テストコード
-	mov		r14, rdx	; 第３引数（stack）
-	mov		r15, rcx	; 第４引数（W_asm）
+	mov		r15, rdx	; 第３引数（W_asm）
 ;;; ==================
 
 	%xdefine stack_size (16*4 + 8)  ; 72bytes
@@ -253,10 +246,9 @@ sha1_update_intel:   ;; ----- コード開始位置
 ;--------------------------------------------
 ; 処理開始
 
-	DEPO_W_RESET
-
-	; スタック領域（64bytes）に初期値を設定する
+	DEPO_W_INIT
 	W_PRECALC_RESET
+
 ;	vmovdqa		K_VAL, [K_XMM_AR]
 	W_PRECALC_00_15	 0, 0  ; %1 <- %2
 	W_PRECALC_00_15	 4, 16
@@ -289,15 +281,6 @@ sha1_update_intel:   ;; ----- コード開始位置
 
 
 ;;; ==================
-;;; スタックのコピー
-	mov		rcx, r14			; 第４引数の復帰
-	vmovdqu	ymm0, [rsp]
-	vmovdqa [rcx], ymm0			; 32bytes コピー
-	vmovdqu	ymm0, [rsp + 32]
-	vmovdqa [rcx + 32], ymm0	; 32bytes コピー
-	mov		rax, [rsp + 64]
-	mov		[rcx + 64], rax		; 8bytes コピー
-
 ;;; DEPO_W のテスト
 	vmovdqa		[r15], ymm10
 	add			r15, 32

@@ -21,7 +21,8 @@ extern void  SHA1_HashMultipleBlocks_SHANI(
 
 //extern "C" void sha1_update_intel(unsigned int* state, const char* data, size_t num_blocks);
 //extern "C" uint64_t sha1_update_intel(unsigned int* state, const char* data, size_t num_blocks);
-extern "C" uint64_t sha1_update_intel(unsigned int* state, const char* data, char* pstack, uint8_t* pW_asm);
+//extern "C" uint64_t sha1_update_intel(unsigned int* state, const char* data, char* pstack, uint8_t* pW_asm);
+extern "C" uint64_t sha1_update_intel(unsigned int* state, const char* data, uint8_t* pW_asm);
 
 /////////////////////////////////////////////////////////////////////////////////////
 
@@ -123,23 +124,26 @@ int main()
 // ====================
 // テストコード
 	{
+#if false
 		// stack コピーエリア
 		char __attribute__ ((aligned (32))) stack[160];  // vmovdaq の利用のため
 
 		uint8_t*  psrc = (uint8_t*)(stack + 72);  // 72 = 16 * 4 + 8（スタック + rax）
 		for (uint8_t i = 0; i < 32; ++i)
 		{ *psrc++ = i; }
-
+#endif
 		// ----------------------------------------
 		// アセンブラ呼び出し
-		const uint64_t  retv = sha1_update_intel(state, data, stack, W_asm);
+		const uint64_t  retv = sha1_update_intel(state, data, W_asm);
 
 		// ----------------------------------------
+#if false
 		// スタック（64 bytes）のダンプ
 		std::cout << "stack ダンプ\n";
 		psrc = (uint8_t*)stack;
 		G_out_ui8_32(psrc);
 		G_out_ui8_32(psrc + 32);
+#endif
 	}
 
 	// ----------------------------------------
