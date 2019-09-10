@@ -135,19 +135,19 @@ global sha1_update_intel
 ;; instead we do equal:    w[i] = (w[i-6] ^ w[i-16] ^ w[i-28] ^ w[i-32]) rol 2
 
 	movdqa  W_TMP, W_minus_04		; W_TMP = W31 W30 W29 W28
-	pxor    W, W_minus_28			; W = (W7 W6 W5 W4) ^ (W3 W2 W1 W0)
 	palignr W_TMP, W_minus_08, 8	; W_TMP = W29 W28 W27 W26
 
+	pxor    W, W_minus_28			; W = (W7 W6 W5 W4) ^ (W3 W2 W1 W0)
 	pxor    W, W_minus_16			; W = (W19 W18 W17 W16) ^ (W7 W6 W5 W4) ^ (W3 W2 W1 W0)
 	pxor    W, W_TMP				; W = (W29 W28 W27 W26) ^ (W19 W18 W17 W16) ^ (W7 W6 W5 W4) ^ (W3 W2 W1 W0)
-	movdqa  W_TMP, W
 
+	movdqa  W_TMP, W
 	psrld   W, 30
 	pslld   W_TMP, 2
-	por     W_TMP, W				; W_TMP = S^2((W29 W28 W27 W26) ^ (W19 W18 W17 W16) ^ (W7 W6 W5 W4) ^ (W3 W2 W1 W0))
+	por     W, W_TMP				; W_TMP = S^2((W29 W28 W27 W26) ^ (W19 W18 W17 W16) ^ (W7 W6 W5 W4) ^ (W3 W2 W1 W0))
 									;       = W35 W34 W33 W32
 
-	movdqa  W, W_TMP
+	movdqa  W_TMP, W
 ;	paddd   W_TMP, K_VAL
 	movdqa  [WK(%1)],W_TMP
 
