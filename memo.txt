@@ -2,12 +2,18 @@
 ctx（= rdi）: hash 値を指すポインタ（20bytes バッファ）
 buf（= rsi）: 元データ（64bytes バッファ）
 
-* linux64-abi の規定　第１～６引数 で渡されるレジスタ
+* Linux64 ABI の規定　第１～６引数 で渡されるレジスタ
 　rdi, rsi, rdx, rcx, r8, r9
 * 戻り値は rax
-
-* linux64-abi で保存すべきレジスタ
+* 保存すべきレジスタ
 　rbx, rbp, rsp, r12-15, mxcsr（partial）
+
+* Windows64 ABI の規定
+https://docs.microsoft.com/ja-jp/cpp/build/x64-calling-convention?view=vs-2019
+　引数: 　rcx, rdx, r8, r9
+　戻り値: rax or xmm0
+　揮発レジスタ： rax, rcx, rdx, r8 - r11, xmm00 - xmm05
+　不揮発レジスタ: rbx, rbp, rdi, rsi, rsp, r12 - r15, xmm06 - xmm15
 
 
 K_BASE		: r8 = K_XMM_AR、 K_BASE は K_XMM_AR のアドレスを指していて不変である
