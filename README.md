@@ -9,11 +9,9 @@
 * SHA1.txt が、intel の中の人が書いたオリジナルコード  
 https://software.intel.com/en-us/articles/improving-the-performance-of-the-secure-hash-algorithm-1  
 
-* SHA1.asm は、SHA1.txt の中で理解できた部分を書き出したもの。  
-NASM の macro local label は、%% を pp に書き換えている。  
-テストとしてコードを書き換えている最中の箇所は、「;;;」でマークしている。
+* SHA1.asm は、SHA1.txt を分かりやすくするために書き換えたコード  
+（分かりやすくしたため、実行速度が犠牲になっている）
 
-* SHA1.asm.old は単なる作業用のファイル
 * main.cpp は、SHA1.asm を呼び出すだけの確認用コード
 * memo.txt は、単なるメモ
 

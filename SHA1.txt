@@ -97,7 +97,7 @@ default rel
 %xdefine XMM_SHUFB_BSWAP xmm10
 
 ;; we keep window of 64 w[i]+K pre-calculated values in a circular buffer
-%xdefine WK(t) (rsp + (t &amp; 15)*4)
+%xdefine WK(t) (rsp + (t & 15)*4)
 
 ;------------------------------------------------------------------------------
 ;
@@ -250,15 +250,11 @@ default rel
 	%xdefine F F4
 
 	%if (%1 == 1)                         ;; if code loops through more than one block
-
 		add   BUFFER_PTR, 64            ;; move to next 64-byte block
 		cmp   BUFFER_PTR, BUFFER_END    ;; check if current block is the last one
 		cmovae BUFFER_PTR, K_BASE       ;; smart way to signal the last iteration
-
 	%else
-
 		%xdefine W_NO_TAIL_PRECALC 1    ;; no software pipelining for single block interface
-
 	%endif
 
 	RR A,B,C,D,E,60
@@ -280,7 +276,6 @@ default rel
 	UPDATE_HASH [HASH_PTR+16],E
 
 	%if (%1 == 1)
-
 		jmp %%_loop
 
 		align 32  
