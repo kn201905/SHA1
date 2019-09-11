@@ -51,9 +51,10 @@ void  G_cout_ui32(uint32_t srcval)
 	std::cout << hexes;
 }
 
-void  G_out_ui32_4(uint32_t* psrc_ui32)
+// ハッシュ値表示用
+void  G_out_ui32_5(uint32_t* psrc_ui32)
 {
-	for (int i = 0; i < 4; ++i)
+	for (int i = 0; i < 5; ++i)
 	{ G_cout_ui32(*psrc_ui32++); }
 	std::cout << std::endl;
 }
@@ -91,7 +92,7 @@ void  G_out_ui8_32(uint8_t* psrc_ui8)
 
 int main()
 {
-    uint32_t  hash[5];
+    uint32_t  hash[5] = { 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0 };
 
 	char __attribute__ ((aligned (32))) data[64];
     memset(data, 0, sizeof(data));
@@ -109,6 +110,13 @@ int main()
 	// ----------------------------------------
 	// アセンブラルーチン呼び出し
 	const uint64_t  retv = sha1_update_intel(hash, data, W_asm);
+
+
+	// ----------------------------------------
+	// hash値のダンプ
+	std::cout << std::endl;
+	std::cout << "ハッシュ値 ダンプ" << std::endl;
+	G_out_ui32_5(hash);
 
 
 	// ----------------------------------------

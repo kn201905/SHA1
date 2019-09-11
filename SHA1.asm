@@ -295,11 +295,19 @@ sha1_update_intel:		; ----- コード開始位置
 	movdqa  XMM_SHUFB_BSWAP, [bswap_shufb_ctl]
 
 	; ハッシュ初期値
+%if (0)
 	mov		A, 0x67452301
 	mov		B, 0xEFCDAB89
 	mov		C, 0x98BADCFE
 	mov		D, 0x10325476
 	mov		E, 0xC3D2E1F0
+%else
+	mov		A, [HASH_PTR   ]
+	mov		B, [HASH_PTR+ 4]
+	mov		C, [HASH_PTR+ 8]
+	mov		D, [HASH_PTR+12]
+	mov		E, [HASH_PTR+16]
+%endif
 
 ;--------------------------------------------
 ; 処理開始
@@ -383,6 +391,14 @@ sha1_update_intel:		; ----- コード開始位置
 	RR B,C,D,E,A
 	RR E,A,B,C,D
 	RR C,D,E,A,B
+
+
+; -----------------------------------------
+	add		[HASH_PTR   ], A
+	add		[HASH_PTR+ 4], B
+	add		[HASH_PTR+ 8], C
+	add		[HASH_PTR+12], D
+	add		[HASH_PTR+16], E
 
 
 ;;; ==================
